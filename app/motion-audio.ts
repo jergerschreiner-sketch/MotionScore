@@ -84,6 +84,7 @@ export function createAudioRig(): AudioRig {
   const delay = context.createDelay(1.5);
   const delayFeedback = context.createGain();
   const delayWet = context.createGain();
+  const limiter = context.createDynamicsCompressor();
   const capture = context.createMediaStreamDestination();
 
   master.gain.value = 0.78;
@@ -96,12 +97,17 @@ export function createAudioRig(): AudioRig {
   tremoloLfo.type = "sine";
   tremoloLfo.frequency.value = 5;
   dry.gain.value = 0.86;
-  reverbSend.gain.value = 0.12;
-  wet.gain.value = 0.72;
+  reverbSend.gain.value = 0.06;
+  wet.gain.value = 1.0;
   delaySend.gain.value = 0;
-  delay.delayTime.value = 0.32;
-  delayFeedback.gain.value = 0.46;
-  delayWet.gain.value = 0.42;
+  delay.delayTime.value = 0.34;
+  delayFeedback.gain.value = 0.54;
+  delayWet.gain.value = 0.82;
+  limiter.threshold.value = -4;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.18;
   convolver.buffer = makeImpulse(context);
 
   input.connect(filter).connect(tremolo).connect(panner);
@@ -110,8 +116,9 @@ export function createAudioRig(): AudioRig {
   panner.connect(delaySend).connect(delay).connect(delayWet).connect(master);
   delay.connect(delayFeedback).connect(delay);
   tremoloLfo.connect(tremoloDepth).connect(tremolo.gain);
-  master.connect(context.destination);
-  master.connect(capture);
+  master.connect(limiter);
+  limiter.connect(context.destination);
+  limiter.connect(capture);
   tremoloLfo.start();
 
   return {
@@ -223,9 +230,9 @@ export function triggerReverbThrow(rig: AudioRig, strength: number) {
   const now = rig.context.currentTime;
   const amount = clamp(strength, 0, 1);
   rig.reverbSend.gain.cancelScheduledValues(now);
-  rig.reverbSend.gain.setValueAtTime(Math.max(0.12, rig.reverbSend.gain.value), now);
-  rig.reverbSend.gain.linearRampToValueAtTime(0.62 + amount * 0.34, now + 0.025);
-  rig.reverbSend.gain.setTargetAtTime(0.12, now + 0.16, 0.055);
+  rig.reverbSend.gain.setValueAtTime(Math.max(0.06, rig.reverbSend.gain.value), now);
+  rig.reverbSend.gain.linearRampToValueAtTime(1.02 + amount * 0.38, now + 0.025);
+  rig.reverbSend.gain.setTargetAtTime(0.06, now + 0.42, 0.085);
 }
 
 export function triggerDelayThrow(rig: AudioRig, strength: number) {
@@ -234,9 +241,9 @@ export function triggerDelayThrow(rig: AudioRig, strength: number) {
   rig.delaySend.gain.cancelScheduledValues(now);
   rig.delayFeedback.gain.cancelScheduledValues(now);
   rig.delaySend.gain.setValueAtTime(Math.max(0.0001, rig.delaySend.gain.value), now);
-  rig.delaySend.gain.linearRampToValueAtTime(0.58 + amount * 0.34, now + 0.02);
-  rig.delaySend.gain.setTargetAtTime(0.0001, now + 0.14, 0.045);
-  rig.delayFeedback.gain.setTargetAtTime(0.40 + amount * 0.18, now, 0.06);
+  rig.delaySend.gain.linearRampToValueAtTime(0.92 + amount * 0.32, now + 0.02);
+  rig.delaySend.gain.setTargetAtTime(0.0001, now + 0.34, 0.065);
+  rig.delayFeedback.gain.setTargetAtTime(0.52 + amount * 0.14, now, 0.06);
 }
 
 export function triggerPercussion(rig: AudioRig, velocity: number, pan: number) {
