@@ -131,13 +131,26 @@ const installer = http.createServer((request, response) => {
 const secureProxy = https.createServer(
   { key: readFileSync(serverKey), cert: readFileSync(serverCert) },
   (request, response) => {
+    if (request.url === "/local-peerjs.js") {
+      response.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      response.end(readFileSync(path.join(root, "node_modules", "peerjs", "dist", "peerjs.min.js")));
+      return;
+    }
+
     const proxy = http.request(
       {
         hostname: "::1",
         port: 3000,
         path: request.url,
         method: request.method,
-        headers: { ...request.headers, host: "localhost:3000" },
+        headers: {
+          ...request.headers,
+          host: "localhost:3000",
+          origin: "http://localhost:3000",
+        },
       },
       (upstream) => {
         response.writeHead(upstream.statusCode ?? 502, upstream.headers);

@@ -526,15 +526,15 @@ export function MotionScoreApp() {
             <span className="role-description">接收动作 · 播放声音 · 生成视觉谱</span>
             <span className="role-action">在 Mac 上进入 ↗</span>
           </button>
-          <button
+          <a
             className="role-card controller-card"
-            onClick={() => setRole("controller")}
+            href="/phone.html"
           >
             <span className="role-index">02</span>
             <span className="role-title">手机控制端</span>
             <span className="role-description">读取传感器 · 发送动作 · 实时演奏</span>
             <span className="role-action">在 iPhone 上进入 ↗</span>
-          </button>
+          </a>
         </section>
 
         <footer className="home-footer">

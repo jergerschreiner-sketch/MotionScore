@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#10110f" />
+    <title>惯性谱 · 手机控制端</title>
+    <style>
+      :root { color-scheme: dark; --ink:#10110f; --paper:#f1efe7; --acid:#d7ff45; }
+      * { box-sizing:border-box; }
+      html,body { margin:0; min-height:100%; background:var(--ink); color:var(--paper); font-family:-apple-system,"PingFang SC",sans-serif; }
+      body { min-height:100svh; padding:calc(18px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom)); background:radial-gradient(circle at 50% 27%,rgba(215,255,69,.16),transparent 32%),var(--ink); }
+      header { display:flex; height:42px; align-items:center; justify-content:space-between; font-size:12px; color:rgba(241,239,231,.65); }
+      header a { color:inherit; text-decoration:none; }
+      .dot { width:9px; height:9px; border-radius:50%; background:#6b6e66; }
+      .dot.connected { background:var(--acid); box-shadow:0 0 14px var(--acid); }
+      main { width:min(100%,440px); margin:auto; }
+      .orbit-wrap { position:relative; display:grid; height:280px; place-items:center; }
+      .phone { position:relative; z-index:2; display:flex; width:150px; height:190px; flex-direction:column; align-items:center; justify-content:center; border:1px solid rgba(241,239,231,.35); border-radius:35px; background:rgba(241,239,231,.05); transition:.25s ease; }
+      .phone.active { border-color:var(--acid); box-shadow:0 0 42px rgba(215,255,69,.18),inset 0 0 45px rgba(215,255,69,.08); }
+      .phone span,.phone small { font:9px ui-monospace,monospace; letter-spacing:.18em; opacity:.52; }
+      .phone strong { margin:11px 0 4px; font-size:44px; font-weight:420; }
+      .orbit { position:absolute; width:230px; height:230px; border:1px solid rgba(215,255,69,.17); border-radius:50%; }
+      .a { transform:rotateX(65deg) rotateZ(18deg); }
+      .b { transform:rotateY(68deg) rotateZ(-12deg); }
+      .panel { display:grid; gap:10px; }
+      label { color:rgba(241,239,231,.56); font-size:12px; }
+      input { width:100%; padding:17px 18px; border:1px solid rgba(241,239,231,.2); border-radius:14px; outline:none; background:rgba(241,239,231,.06); color:var(--paper); font:20px ui-monospace,monospace; letter-spacing:.2em; text-transform:uppercase; }
+      input:focus { border-color:var(--acid); }
+      button { min-height:54px; border:0; border-radius:14px; color:var(--paper); background:transparent; font:650 15px -apple-system,"PingFang SC",sans-serif; }
+      .connect { margin-top:5px; background:var(--acid); color:var(--ink); }
+      .sensor { border:1px solid rgba(241,239,231,.22); }
+      button:disabled { opacity:.58; }
+      #message { min-height:38px; margin:5px 2px 0; color:rgba(241,239,231,.5); font-size:11px; line-height:1.6; }
+      .readout { display:grid; margin-top:16px; padding-top:16px; border-top:1px solid rgba(241,239,231,.12); grid-template-columns:repeat(4,1fr); }
+      .readout span { display:grid; gap:5px; font:11px ui-monospace,monospace; text-align:center; }
+      .readout b { color:rgba(241,239,231,.36); font-size:8px; font-weight:400; }
+      .warning { display:none; margin:12px 0; padding:12px; border:1px solid #ff875d; border-radius:12px; color:#ffb49b; font-size:12px; line-height:1.5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="/">← 返回</a>
+      <span>手机控制端</span>
+      <i id="status-dot" class="dot"></i>
+    </header>
+    <main>
+      <div id="script-warning" class="warning">控制脚本没有加载，请刷新页面。</div>
+      <section class="orbit-wrap">
+        <div id="phone" class="phone"><span>MOVE</span><strong id="magnitude">0.0</strong><small>m/s²</small></div>
+        <i class="orbit a"></i><i class="orbit b"></i>
+      </section>
+      <section class="panel">
+        <label for="code">输入电脑端配对码</label>
+        <input id="code" maxlength="5" placeholder="例如 7KX9P" autocomplete="off" />
+        <button id="connect" class="connect">连接电脑</button>
+        <button id="sensor" class="sensor">启用动作传感</button>
+        <p id="message">连接后请允许 Safari 访问动作与方向数据</p>
+      </section>
+      <section class="readout">
+        <span><b>X</b><em id="x">0.00</em></span>
+        <span><b>Y</b><em id="y">0.00</em></span>
+        <span><b>Z</b><em id="z">0.00</em></span>
+        <span><b>倾斜</b><em id="tilt">0°</em></span>
+      </section>
+    </main>
+    <script>setTimeout(function(){if(!window.__MOTIONSCORE_READY__)document.getElementById('script-warning').style.display='block'},1800)</script>
+    <script src="/local-peerjs.js"></script>
+    <script>
+      (function () {
+        window.__MOTIONSCORE_READY__ = true;
+        var peer = null;
+        var connection = null;
+        var orientation = { alpha: 0, beta: 0, gamma: 0 };
+        var lastSent = 0;
+        var code = document.getElementById("code");
+        var connectButton = document.getElementById("connect");
+        var sensorButton = document.getElementById("sensor");
+        var message = document.getElementById("message");
+        var dot = document.getElementById("status-dot");
+        var phone = document.getElementById("phone");
+        var magnitude = document.getElementById("magnitude");
+
+        code.addEventListener("input", function () {
+          code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        });
+
+        function setMessage(text) { message.textContent = text; }
+        function targetPeerId(value) { return "motionscore-" + value.trim().toLowerCase(); }
+
+        connectButton.addEventListener("click", function () {
+          var room = code.value.trim();
+          if (room.length < 4) { setMessage("请输入电脑舞台端显示的配对码"); return; }
+          if (typeof Peer === "undefined") { setMessage("通信组件未加载，请刷新页面"); return; }
+          connectButton.disabled = true;
+          connectButton.textContent = "正在连接";
+          setMessage("正在寻找电脑舞台端…");
+          if (peer) peer.destroy();
+          peer = new Peer({ debug: 1 });
+          peer.on("open", function () {
+            connection = peer.connect(targetPeerId(room), { reliable: false, serialization: "json" });
+            connection.on("open", function () {
+              dot.classList.add("connected");
+              connectButton.textContent = "已连接电脑";
+              setMessage("连接成功，现在启用动作传感器");
+            });
+            connection.on("close", function () {
+              dot.classList.remove("connected");
+              connectButton.disabled = false;
+              connectButton.textContent = "重新连接";
+              setMessage("连接已断开");
+            });
+            connection.on("error", function () {
+              connectButton.disabled = false;
+              connectButton.textContent = "重新连接";
+              setMessage("连接失败，请确认配对码");
+            });
+          });
+          peer.on("error", function () {
+            connectButton.disabled = false;
+            connectButton.textContent = "重新连接";
+            setMessage("连接失败，请确认电脑端仍在等待");
+          });
+        });
+
+        sensorButton.addEventListener("click", async function () {
+          if (!("DeviceMotionEvent" in window)) { setMessage("当前浏览器不支持运动传感器"); return; }
+          try {
+            var motionPermission = typeof DeviceMotionEvent.requestPermission === "function" ? await DeviceMotionEvent.requestPermission() : "granted";
+            var orientationPermission = typeof DeviceOrientationEvent.requestPermission === "function" ? await DeviceOrientationEvent.requestPermission() : "granted";
+            if (motionPermission !== "granted" || orientationPermission !== "granted") { setMessage("没有获得动作与方向传感器权限"); return; }
+            window.addEventListener("deviceorientation", function (event) {
+              orientation = { alpha:event.alpha || 0, beta:event.beta || 0, gamma:event.gamma || 0 };
+            });
+            window.addEventListener("devicemotion", function (event) {
+              var now = performance.now();
+              if (now - lastSent < 28) return;
+              lastSent = now;
+              var acceleration = event.acceleration || event.accelerationIncludingGravity || {};
+              var ax = acceleration.x || 0, ay = acceleration.y || 0, az = acceleration.z || 0;
+              var rotation = event.rotationRate || {};
+              var energy = Math.sqrt(ax * ax + ay * ay + az * az);
+              var frame = { type:"sensor", ax:ax, ay:ay, az:az, alpha:orientation.alpha, beta:orientation.beta, gamma:orientation.gamma, rx:rotation.alpha || 0, ry:rotation.beta || 0, rz:rotation.gamma || 0, magnitude:energy, t:Date.now() };
+              magnitude.textContent = energy.toFixed(1);
+              document.getElementById("x").textContent = ax.toFixed(2);
+              document.getElementById("y").textContent = ay.toFixed(2);
+              document.getElementById("z").textContent = az.toFixed(2);
+              document.getElementById("tilt").textContent = orientation.gamma.toFixed(0) + "°";
+              if (connection && connection.open) connection.send(frame);
+            });
+            phone.classList.add("active");
+            sensorButton.disabled = true;
+            sensorButton.textContent = "动作传感已启用";
+            setMessage("动作传感已启用，请握紧手机开始演奏");
+          } catch (error) {
+            setMessage("无法启用动作传感器，请检查 Safari 权限设置");
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
