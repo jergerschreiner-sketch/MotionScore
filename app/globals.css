@@ -651,6 +651,80 @@ button {
   color: var(--acid);
 }
 
+.performance-tools {
+  position: absolute;
+  z-index: 2;
+  bottom: 52px;
+  left: 32px;
+  width: 370px;
+  padding: 15px;
+}
+
+.tool-heading,
+.calibration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-heading small {
+  color: rgba(241, 239, 231, 0.34);
+  font: 8px ui-monospace, monospace;
+}
+
+.tool-buttons {
+  display: grid;
+  margin: 10px 0;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+
+.tool-buttons button,
+.calibration-row button {
+  min-height: 31px;
+  border: 1px solid rgba(241, 239, 231, 0.15);
+  border-radius: 8px;
+  background: rgba(241, 239, 231, 0.035);
+  cursor: pointer;
+  font-size: 8px;
+}
+
+.tool-buttons button.recording {
+  border-color: var(--coral);
+  color: #ff9c80;
+  box-shadow: 0 0 16px rgba(255, 110, 69, 0.18);
+}
+
+.tool-buttons button:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.calibration-row {
+  padding-top: 9px;
+  border-top: 1px solid rgba(241, 239, 231, 0.08);
+}
+
+.calibration-row label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  color: rgba(241, 239, 231, 0.45);
+  font-size: 8px;
+}
+
+.calibration-row input {
+  width: 100%;
+  accent-color: var(--acid);
+}
+
+.calibration-row output {
+  color: var(--acid);
+  font: 8px ui-monospace, monospace;
+}
+
 .stage-footer {
   position: absolute;
   z-index: 2;
@@ -741,6 +815,13 @@ button {
   .stage-footer {
     right: 16px;
     left: 16px;
+  }
+
+  .performance-tools {
+    right: 16px;
+    bottom: 52px;
+    left: 16px;
+    width: auto;
   }
 }
 

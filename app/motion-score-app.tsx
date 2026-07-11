@@ -40,6 +40,20 @@ type SensorFrame = {
   t: number;
 };
 
+type PerformanceEvent = {
+  at: number;
+  data: SensorFrame | NoteMessage;
+};
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
 const INITIAL_FRAME: SensorFrame = {
   type: "sensor",
   ax: 0,
@@ -185,6 +199,10 @@ export function MotionScoreApp() {
   const [activeNotes, setActiveNotes] = useState<number[]>([]);
   const [currentNoteName, setCurrentNoteName] = useState("—");
   const [gestureLabel, setGestureLabel] = useState("等待演奏");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [recordedCount, setRecordedCount] = useState(0);
+  const [sensitivity, setSensitivity] = useState(1);
   const [message, setMessage] = useState("");
 
   const peerRef = useRef<PeerInstance | null>(null);
@@ -196,6 +214,23 @@ export function MotionScoreApp() {
   const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
   const lastSentRef = useRef(0);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingRef = useRef(false);
+  const replayingRef = useRef(false);
+  const recordingStartRef = useRef(0);
+  const performanceRef = useRef<PerformanceEvent[]>([]);
+  const replayTimersRef = useRef<number[]>([]);
+  const neutralRef = useRef({ beta: 0, gamma: 0 });
+  const sensitivityRef = useRef(1);
+
+  useEffect(() => {
+    sensitivityRef.current = sensitivity;
+  }, [sensitivity]);
+
+  const captureEvent = useCallback((data: SensorFrame | NoteMessage) => {
+    if (!recordingRef.current || replayingRef.current) return;
+    performanceRef.current.push({ at: performance.now() - recordingStartRef.current, data });
+    if (performanceRef.current.length % 12 === 0) setRecordedCount(performanceRef.current.length);
+  }, []);
 
   const statusLabel = useMemo(() => {
     if (connectionState === "connected") return "已连接";
@@ -206,11 +241,12 @@ export function MotionScoreApp() {
   }, [connectionState]);
 
   const processFrame = useCallback((next: SensorFrame) => {
+    captureEvent(next);
     setFrame(next);
     const energy = clamp(next.magnitude / 12, 0, 1);
     shakeRef.current = shakeRef.current * 0.76 + energy * 0.24;
-    const pan = clamp(next.gamma / 45, -1, 1);
-    const brightness = clamp((next.beta + 30) / 120, 0, 1);
+    const pan = clamp(((next.gamma - neutralRef.current.gamma) / 45) * sensitivityRef.current, -1, 1);
+    const brightness = clamp(0.5 + ((next.beta - neutralRef.current.beta) / 90) * sensitivityRef.current, 0, 1);
     const spin = clamp(Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2) / 220, 0, 1);
 
     if (audioRef.current) {
@@ -223,7 +259,8 @@ export function MotionScoreApp() {
     }
 
     const now = performance.now();
-    const isDownstroke = next.magnitude > 8.5 && (next.ay < -3.2 || next.az < -6.5);
+    const threshold = 8.5 / sensitivityRef.current;
+    const isDownstroke = next.magnitude > threshold && (next.ay < -3.2 || next.az < -6.5);
     if (isDownstroke && now - lastImpactRef.current > 450) {
       lastImpactRef.current = now;
       setPulse(1);
@@ -238,9 +275,10 @@ export function MotionScoreApp() {
         );
       }
     }
-  }, []);
+  }, [captureEvent]);
 
   const processNote = useCallback((note: NoteMessage) => {
+    captureEvent(note);
     if (note.action === "allOff") {
       activeNotesRef.current = [];
       setActiveNotes([]);
@@ -269,7 +307,7 @@ export function MotionScoreApp() {
     activeNotesRef.current = activeNotesRef.current.filter((value) => value !== note.midi);
     setActiveNotes(activeNotesRef.current);
     if (audioRef.current) noteOff(audioRef.current, note.midi);
-  }, []);
+  }, [captureEvent]);
 
   useEffect(() => {
     if (role !== "stage") return;
@@ -325,6 +363,7 @@ export function MotionScoreApp() {
   useEffect(() => {
     return () => {
       if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+      replayTimersRef.current.forEach(window.clearTimeout);
       void audioRef.current?.context.close();
     };
   }, []);
@@ -497,6 +536,77 @@ export function MotionScoreApp() {
     [processFrame],
   );
 
+  const toggleRecording = useCallback(() => {
+    if (recordingRef.current) {
+      recordingRef.current = false;
+      setIsRecording(false);
+      setRecordedCount(performanceRef.current.length);
+      setMessage(`录制完成：${performanceRef.current.length} 个演奏事件`);
+      return;
+    }
+    replayTimersRef.current.forEach(window.clearTimeout);
+    performanceRef.current = [];
+    recordingStartRef.current = performance.now();
+    recordingRef.current = true;
+    setRecordedCount(0);
+    setIsRecording(true);
+    setMessage("正在记录音符、动作和视觉轨迹…");
+  }, []);
+
+  const replayPerformance = useCallback(async () => {
+    if (!performanceRef.current.length || isReplaying) return;
+    await enableAudio();
+    replayTimersRef.current.forEach(window.clearTimeout);
+    replayingRef.current = true;
+    setIsReplaying(true);
+    setMessage("正在回放演奏记录");
+    const events = [...performanceRef.current];
+    for (const event of events) {
+      const timer = window.setTimeout(() => {
+        if (isSensorFrame(event.data)) processFrame(event.data);
+        else processNote(event.data);
+      }, event.at);
+      replayTimersRef.current.push(timer);
+    }
+    const end = events.at(-1)?.at ?? 0;
+    replayTimersRef.current.push(window.setTimeout(() => {
+      replayingRef.current = false;
+      setIsReplaying(false);
+      if (audioRef.current) allNotesOff(audioRef.current);
+      setMessage("回放完成");
+    }, end + 600));
+  }, [enableAudio, isReplaying, processFrame, processNote]);
+
+  const exportPerformance = useCallback(() => {
+    if (!performanceRef.current.length) {
+      setMessage("请先录制一段演奏");
+      return;
+    }
+    const payload = {
+      project: "MotionScore / 惯性谱",
+      createdAt: new Date().toISOString(),
+      mapping: "touch=pitch, tilt=pan/filter, shake=tremolo, downstroke=impact, spin=reverb",
+      events: performanceRef.current,
+    };
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `motionscore-${Date.now()}.json`);
+    setMessage("演奏数据已导出");
+  }, []);
+
+  const exportVisualScore = useCallback(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(".motion-canvas");
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (blob) downloadBlob(blob, `motionscore-visual-${Date.now()}.png`);
+    }, "image/png");
+    setMessage("动作视觉谱已导出为 PNG");
+  }, []);
+
+  const calibrateMotion = useCallback(() => {
+    neutralRef.current = { beta: frame.beta, gamma: frame.gamma };
+    setGestureLabel("姿态已校准");
+    setMessage("已将当前握持姿态设为中心位置");
+  }, [frame.beta, frame.gamma]);
+
   const visualNoteIndex = NOTE_DEFINITIONS.findIndex(
     (note) => note.midi === activeNotes.at(-1),
   );
@@ -667,6 +777,26 @@ export function MotionScoreApp() {
             onChange={(event) => void loadSample(event.target.files?.[0])}
           />
         </label>
+      </section>
+
+      <section className="performance-tools glass-card">
+        <div className="tool-heading">
+          <span className="panel-label">PERFORMANCE CAPTURE</span>
+          <small>{recordedCount} EVENTS</small>
+        </div>
+        <div className="tool-buttons">
+          <button className={isRecording ? "recording" : ""} onClick={toggleRecording}>
+            {isRecording ? "停止录制" : "开始录制"}
+          </button>
+          <button disabled={!recordedCount || isRecording} onClick={() => void replayPerformance()}>{isReplaying ? "回放中" : "回放"}</button>
+          <button disabled={!recordedCount} onClick={exportPerformance}>导出数据</button>
+          <button onClick={exportVisualScore}>导出视觉谱</button>
+        </div>
+        <div className="calibration-row">
+          <button onClick={calibrateMotion}>校准当前姿态</button>
+          <label>灵敏度 <input type="range" min="0.65" max="1.55" step="0.05" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} /></label>
+          <output>{sensitivity.toFixed(2)}×</output>
+        </div>
       </section>
 
       <section className="stage-keyboard glass-card">
