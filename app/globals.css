@@ -660,8 +660,7 @@ button {
   padding: 15px;
 }
 
-.tool-heading,
-.calibration-row {
+.tool-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -680,8 +679,7 @@ button {
   gap: 5px;
 }
 
-.tool-buttons button,
-.calibration-row button {
+.tool-buttons button {
   min-height: 31px;
   border: 1px solid rgba(241, 239, 231, 0.15);
   border-radius: 8px;
@@ -699,30 +697,6 @@ button {
 .tool-buttons button:disabled {
   cursor: default;
   opacity: 0.32;
-}
-
-.calibration-row {
-  padding-top: 9px;
-  border-top: 1px solid rgba(241, 239, 231, 0.08);
-}
-
-.calibration-row label {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 7px;
-  color: rgba(241, 239, 231, 0.45);
-  font-size: 8px;
-}
-
-.calibration-row input {
-  width: 100%;
-  accent-color: var(--acid);
-}
-
-.calibration-row output {
-  color: var(--acid);
-  font: 8px ui-monospace, monospace;
 }
 
 .stage-footer {

@@ -38,6 +38,7 @@ export type AudioRig = {
   dry: GainNode;
   convolver: ConvolverNode;
   wet: GainNode;
+  capture: MediaStreamAudioDestinationNode;
   samples: Map<string, AudioBuffer>;
   voices: Map<number, Voice>;
   customHit: AudioBuffer | null;
@@ -73,6 +74,7 @@ export function createAudioRig(): AudioRig {
   const dry = context.createGain();
   const convolver = context.createConvolver();
   const wet = context.createGain();
+  const capture = context.createMediaStreamDestination();
 
   master.gain.value = 0.78;
   input.gain.value = 0.92;
@@ -92,6 +94,7 @@ export function createAudioRig(): AudioRig {
   panner.connect(convolver).connect(wet).connect(master);
   tremoloLfo.connect(tremoloDepth).connect(tremolo.gain);
   master.connect(context.destination);
+  master.connect(capture);
   tremoloLfo.start();
 
   return {
@@ -106,6 +109,7 @@ export function createAudioRig(): AudioRig {
     dry,
     convolver,
     wet,
+    capture,
     samples: new Map(),
     voices: new Map(),
     customHit: null,

@@ -54,6 +54,10 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
+function supportedMime(candidates: string[]) {
+  return candidates.find((value) => MediaRecorder.isTypeSupported(value)) ?? "";
+}
+
 const INITIAL_FRAME: SensorFrame = {
   type: "sensor",
   ax: 0,
@@ -202,7 +206,8 @@ export function MotionScoreApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [isReplaying, setIsReplaying] = useState(false);
   const [recordedCount, setRecordedCount] = useState(0);
-  const [sensitivity, setSensitivity] = useState(1);
+  const [audioRecording, setAudioRecording] = useState<Blob | null>(null);
+  const [videoRecording, setVideoRecording] = useState<Blob | null>(null);
   const [message, setMessage] = useState("");
 
   const peerRef = useRef<PeerInstance | null>(null);
@@ -219,12 +224,8 @@ export function MotionScoreApp() {
   const recordingStartRef = useRef(0);
   const performanceRef = useRef<PerformanceEvent[]>([]);
   const replayTimersRef = useRef<number[]>([]);
-  const neutralRef = useRef({ beta: 0, gamma: 0 });
-  const sensitivityRef = useRef(1);
-
-  useEffect(() => {
-    sensitivityRef.current = sensitivity;
-  }, [sensitivity]);
+  const mediaRecordersRef = useRef<MediaRecorder[]>([]);
+  const mediaStreamsRef = useRef<MediaStream[]>([]);
 
   const captureEvent = useCallback((data: SensorFrame | NoteMessage) => {
     if (!recordingRef.current || replayingRef.current) return;
@@ -245,8 +246,8 @@ export function MotionScoreApp() {
     setFrame(next);
     const energy = clamp(next.magnitude / 12, 0, 1);
     shakeRef.current = shakeRef.current * 0.76 + energy * 0.24;
-    const pan = clamp(((next.gamma - neutralRef.current.gamma) / 45) * sensitivityRef.current, -1, 1);
-    const brightness = clamp(0.5 + ((next.beta - neutralRef.current.beta) / 90) * sensitivityRef.current, 0, 1);
+    const pan = clamp(next.gamma / 45, -1, 1);
+    const brightness = clamp((next.beta + 30) / 120, 0, 1);
     const spin = clamp(Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2) / 220, 0, 1);
 
     if (audioRef.current) {
@@ -259,8 +260,7 @@ export function MotionScoreApp() {
     }
 
     const now = performance.now();
-    const threshold = 8.5 / sensitivityRef.current;
-    const isDownstroke = next.magnitude > threshold && (next.ay < -3.2 || next.az < -6.5);
+    const isDownstroke = next.magnitude > 8.5 && (next.ay < -3.2 || next.az < -6.5);
     if (isDownstroke && now - lastImpactRef.current > 450) {
       lastImpactRef.current = now;
       setPulse(1);
@@ -364,6 +364,10 @@ export function MotionScoreApp() {
     return () => {
       if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
       replayTimersRef.current.forEach(window.clearTimeout);
+      mediaRecordersRef.current.forEach((recorder) => {
+        if (recorder.state !== "inactive") recorder.stop();
+      });
+      mediaStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
       void audioRef.current?.context.close();
     };
   }, []);
@@ -536,22 +540,64 @@ export function MotionScoreApp() {
     [processFrame],
   );
 
-  const toggleRecording = useCallback(() => {
+  const toggleRecording = useCallback(async () => {
     if (recordingRef.current) {
       recordingRef.current = false;
+      mediaRecordersRef.current.forEach((recorder) => {
+        if (recorder.state !== "inactive") recorder.stop();
+      });
+      mediaStreamsRef.current.forEach((stream) => stream.getVideoTracks().forEach((track) => track.stop()));
       setIsRecording(false);
       setRecordedCount(performanceRef.current.length);
-      setMessage(`录制完成：${performanceRef.current.length} 个演奏事件`);
+      setMessage("录制完成，正在生成音频和视频文件…");
       return;
     }
+    if (!("MediaRecorder" in window)) {
+      setMessage("当前浏览器不支持媒体录制，请使用最新版 Chrome 或 Safari");
+      return;
+    }
+    await enableAudio();
+    const rig = audioRef.current;
+    const canvas = document.querySelector<HTMLCanvasElement>(".motion-canvas");
+    if (!rig || !canvas) return;
     replayTimersRef.current.forEach(window.clearTimeout);
     performanceRef.current = [];
+    setAudioRecording(null);
+    setVideoRecording(null);
+    mediaRecordersRef.current = [];
+    mediaStreamsRef.current = [];
+
+    const audioMime = supportedMime(["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]);
+    const videoMime = supportedMime(["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]);
+    const audioChunks: BlobPart[] = [];
+    const videoChunks: BlobPart[] = [];
+    const audioRecorder = new MediaRecorder(rig.capture.stream, audioMime ? { mimeType: audioMime } : undefined);
+    audioRecorder.ondataavailable = (event) => { if (event.data.size) audioChunks.push(event.data); };
+    audioRecorder.onstop = () => setAudioRecording(new Blob(audioChunks, { type: audioRecorder.mimeType || audioMime || "audio/webm" }));
+    mediaRecordersRef.current.push(audioRecorder);
+
+    const canvasStream = canvas.captureStream(30);
+    const combinedStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...rig.capture.stream.getAudioTracks().map((track) => track.clone()),
+    ]);
+    mediaStreamsRef.current.push(canvasStream, combinedStream);
+    const videoRecorder = new MediaRecorder(combinedStream, videoMime ? { mimeType: videoMime } : undefined);
+    videoRecorder.ondataavailable = (event) => { if (event.data.size) videoChunks.push(event.data); };
+    videoRecorder.onstop = () => {
+      setVideoRecording(new Blob(videoChunks, { type: videoRecorder.mimeType || videoMime || "video/webm" }));
+      combinedStream.getAudioTracks().forEach((track) => track.stop());
+      setMessage(`录制完成：${performanceRef.current.length} 个演奏事件，可导出音频或视频`);
+    };
+    mediaRecordersRef.current.push(videoRecorder);
+    audioRecorder.start(500);
+    videoRecorder.start(500);
     recordingStartRef.current = performance.now();
     recordingRef.current = true;
     setRecordedCount(0);
     setIsRecording(true);
     setMessage("正在记录音符、动作和视觉轨迹…");
-  }, []);
+  }, [enableAudio]);
 
   const replayPerformance = useCallback(async () => {
     if (!performanceRef.current.length || isReplaying) return;
@@ -577,35 +623,17 @@ export function MotionScoreApp() {
     }, end + 600));
   }, [enableAudio, isReplaying, processFrame, processNote]);
 
-  const exportPerformance = useCallback(() => {
-    if (!performanceRef.current.length) {
-      setMessage("请先录制一段演奏");
-      return;
-    }
-    const payload = {
-      project: "MotionScore / 惯性谱",
-      createdAt: new Date().toISOString(),
-      mapping: "touch=pitch, tilt=pan/filter, shake=tremolo, downstroke=impact, spin=reverb",
-      events: performanceRef.current,
-    };
-    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `motionscore-${Date.now()}.json`);
-    setMessage("演奏数据已导出");
-  }, []);
+  const exportAudio = useCallback(() => {
+    if (!audioRecording) return;
+    const extension = audioRecording.type.includes("mp4") ? "m4a" : "webm";
+    downloadBlob(audioRecording, `motionscore-audio-${Date.now()}.${extension}`);
+  }, [audioRecording]);
 
-  const exportVisualScore = useCallback(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>(".motion-canvas");
-    if (!canvas) return;
-    canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, `motionscore-visual-${Date.now()}.png`);
-    }, "image/png");
-    setMessage("动作视觉谱已导出为 PNG");
-  }, []);
-
-  const calibrateMotion = useCallback(() => {
-    neutralRef.current = { beta: frame.beta, gamma: frame.gamma };
-    setGestureLabel("姿态已校准");
-    setMessage("已将当前握持姿态设为中心位置");
-  }, [frame.beta, frame.gamma]);
+  const exportVideo = useCallback(() => {
+    if (!videoRecording) return;
+    const extension = videoRecording.type.includes("mp4") ? "mp4" : "webm";
+    downloadBlob(videoRecording, `motionscore-video-${Date.now()}.${extension}`);
+  }, [videoRecording]);
 
   const visualNoteIndex = NOTE_DEFINITIONS.findIndex(
     (note) => note.midi === activeNotes.at(-1),
@@ -785,17 +813,12 @@ export function MotionScoreApp() {
           <small>{recordedCount} EVENTS</small>
         </div>
         <div className="tool-buttons">
-          <button className={isRecording ? "recording" : ""} onClick={toggleRecording}>
+          <button className={isRecording ? "recording" : ""} onClick={() => void toggleRecording()}>
             {isRecording ? "停止录制" : "开始录制"}
           </button>
           <button disabled={!recordedCount || isRecording} onClick={() => void replayPerformance()}>{isReplaying ? "回放中" : "回放"}</button>
-          <button disabled={!recordedCount} onClick={exportPerformance}>导出数据</button>
-          <button onClick={exportVisualScore}>导出视觉谱</button>
-        </div>
-        <div className="calibration-row">
-          <button onClick={calibrateMotion}>校准当前姿态</button>
-          <label>灵敏度 <input type="range" min="0.65" max="1.55" step="0.05" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} /></label>
-          <output>{sensitivity.toFixed(2)}×</output>
+          <button disabled={!audioRecording || isRecording} onClick={exportAudio}>导出音频</button>
+          <button disabled={!videoRecording || isRecording} onClick={exportVideo}>导出视频</button>
         </div>
       </section>
 
