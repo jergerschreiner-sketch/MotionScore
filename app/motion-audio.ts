@@ -36,6 +36,7 @@ export type AudioRig = {
   tremoloLfo: OscillatorNode;
   panner: StereoPannerNode;
   dry: GainNode;
+  reverbSend: GainNode;
   convolver: ConvolverNode;
   wet: GainNode;
   delaySend: GainNode;
@@ -76,6 +77,7 @@ export function createAudioRig(): AudioRig {
   const tremoloLfo = context.createOscillator();
   const panner = context.createStereoPanner();
   const dry = context.createGain();
+  const reverbSend = context.createGain();
   const convolver = context.createConvolver();
   const wet = context.createGain();
   const delaySend = context.createGain();
@@ -94,7 +96,8 @@ export function createAudioRig(): AudioRig {
   tremoloLfo.type = "sine";
   tremoloLfo.frequency.value = 5;
   dry.gain.value = 0.86;
-  wet.gain.value = 0.10;
+  reverbSend.gain.value = 0.12;
+  wet.gain.value = 0.72;
   delaySend.gain.value = 0;
   delay.delayTime.value = 0.32;
   delayFeedback.gain.value = 0.46;
@@ -103,7 +106,7 @@ export function createAudioRig(): AudioRig {
 
   input.connect(filter).connect(tremolo).connect(panner);
   panner.connect(dry).connect(master);
-  panner.connect(convolver).connect(wet).connect(master);
+  panner.connect(reverbSend).connect(convolver).connect(wet).connect(master);
   panner.connect(delaySend).connect(delay).connect(delayWet).connect(master);
   delay.connect(delayFeedback).connect(delay);
   tremoloLfo.connect(tremoloDepth).connect(tremolo.gain);
@@ -121,6 +124,7 @@ export function createAudioRig(): AudioRig {
     tremoloLfo,
     panner,
     dry,
+    reverbSend,
     convolver,
     wet,
     delaySend,
@@ -197,13 +201,12 @@ export function allNotesOff(rig: AudioRig) {
 
 export function updateMotionEffects(
   rig: AudioRig,
-  values: { pan: number; brightness: number; shake: number; twist: number },
+  values: { pan: number; brightness: number; shake: number },
 ) {
   const now = rig.context.currentTime;
   const pan = clamp(values.pan, -1, 1);
   const brightness = clamp(values.brightness, 0, 1);
   const shake = clamp(values.shake, 0, 1);
-  const twist = clamp(values.twist, 0, 1);
   const cutoff = 320 * Math.pow(28, brightness);
   const depth = shake * 0.46;
 
@@ -213,10 +216,27 @@ export function updateMotionEffects(
   rig.tremolo.gain.setTargetAtTime(1 - depth, now, 0.045);
   rig.tremoloDepth.gain.setTargetAtTime(depth, now, 0.045);
   rig.tremoloLfo.frequency.setTargetAtTime(3.2 + shake * 12.5, now, 0.055);
-  rig.wet.gain.setTargetAtTime(0.10, now, 0.11);
   rig.dry.gain.setTargetAtTime(0.88, now, 0.12);
-  rig.delaySend.gain.setTargetAtTime(twist * 0.74, now, twist > 0 ? 0.025 : 0.07);
-  rig.delayFeedback.gain.setTargetAtTime(0.42 + twist * 0.22, now, 0.08);
+}
+
+export function triggerReverbThrow(rig: AudioRig, strength: number) {
+  const now = rig.context.currentTime;
+  const amount = clamp(strength, 0, 1);
+  rig.reverbSend.gain.cancelScheduledValues(now);
+  rig.reverbSend.gain.setValueAtTime(Math.max(0.12, rig.reverbSend.gain.value), now);
+  rig.reverbSend.gain.linearRampToValueAtTime(0.62 + amount * 0.34, now + 0.025);
+  rig.reverbSend.gain.setTargetAtTime(0.12, now + 0.16, 0.055);
+}
+
+export function triggerDelayThrow(rig: AudioRig, strength: number) {
+  const now = rig.context.currentTime;
+  const amount = clamp(strength, 0, 1);
+  rig.delaySend.gain.cancelScheduledValues(now);
+  rig.delayFeedback.gain.cancelScheduledValues(now);
+  rig.delaySend.gain.setValueAtTime(Math.max(0.0001, rig.delaySend.gain.value), now);
+  rig.delaySend.gain.linearRampToValueAtTime(0.58 + amount * 0.34, now + 0.02);
+  rig.delaySend.gain.setTargetAtTime(0.0001, now + 0.14, 0.045);
+  rig.delayFeedback.gain.setTargetAtTime(0.40 + amount * 0.18, now, 0.06);
 }
 
 export function triggerPercussion(rig: AudioRig, velocity: number, pan: number) {

@@ -16,7 +16,9 @@ import {
   loadBuiltInBank,
   noteOff,
   noteOn,
+  triggerDelayThrow,
   triggerPercussion,
+  triggerReverbThrow,
   updateMotionEffects,
   type AudioRig,
   type NoteMessage,
@@ -92,11 +94,14 @@ function isSensorFrame(value: unknown): value is SensorFrame {
   return (value as { type?: string }).type === "sensor";
 }
 
-function isolatedTwistAmount(frame: SensorFrame) {
-  const twistRate = Math.abs(frame.rx);
-  const competingRate = Math.max(Math.abs(frame.ry), Math.abs(frame.rz), 1);
-  const clean = twistRate > 38 && twistRate > competingRate * 1.75 && frame.magnitude < 4.8;
-  return clean ? clamp((twistRate - 35) / 145, 0, 1) : 0;
+function worldVerticalAcceleration(frame: SensorFrame) {
+  const beta = (frame.beta * Math.PI) / 180;
+  const gamma = (frame.gamma * Math.PI) / 180;
+  return (
+    -Math.cos(beta) * Math.sin(gamma) * frame.ax +
+    Math.sin(beta) * frame.ay +
+    Math.cos(beta) * Math.cos(gamma) * frame.az
+  );
 }
 
 function MotionCanvas({
@@ -219,10 +224,16 @@ export function MotionScoreApp() {
   const peerRef = useRef<PeerInstance | null>(null);
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
-  const lastTwistRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
   const shakeRef = useRef(0);
-  const twistRef = useRef(0);
+  const verticalGestureRef = useRef<{
+    direction: -1 | 0 | 1;
+    startedAt: number;
+    peak: number;
+    reversals: number;
+    lastSign: -1 | 0 | 1;
+  }>({ direction: 0, startedAt: 0, peak: 0, reversals: 0, lastSign: 0 });
+  const verticalCooldownRef = useRef(0);
   const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
   const lastSentRef = useRef(0);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -255,9 +266,6 @@ export function MotionScoreApp() {
     shakeRef.current = shakeRef.current * 0.76 + energy * 0.24;
     const pan = clamp(next.gamma / 45, -1, 1);
     const brightness = clamp((next.beta + 30) / 120, 0, 1);
-    const twistTarget = isolatedTwistAmount(next);
-    const cleanTwist = twistTarget > 0;
-    twistRef.current = twistRef.current * 0.72 + twistTarget * 0.28;
     const now = performance.now();
 
     if (audioRef.current) {
@@ -265,13 +273,55 @@ export function MotionScoreApp() {
         pan,
         brightness,
         shake: shakeRef.current,
-        twist: twistRef.current,
       });
     }
 
-    if (cleanTwist && now - lastTwistRef.current > 520) {
-      lastTwistRef.current = now;
-      setGestureLabel("旋钮回弹 · 延迟投掷");
+    const vertical = worldVerticalAcceleration(next);
+    const verticalStrength = Math.abs(vertical);
+    const dominance = verticalStrength / Math.max(next.magnitude, 0.01);
+    const rotationSpeed = Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2);
+    const gesture = verticalGestureRef.current;
+
+    if (gesture.direction === 0 && now >= verticalCooldownRef.current) {
+      if (verticalStrength > 2.9 && dominance > 0.68 && rotationSpeed < 85) {
+        const direction: -1 | 1 = vertical > 0 ? 1 : -1;
+        verticalGestureRef.current = {
+          direction,
+          startedAt: now,
+          peak: verticalStrength,
+          reversals: 0,
+          lastSign: direction,
+        };
+      }
+    } else if (gesture.direction !== 0) {
+      const elapsed = now - gesture.startedAt;
+      gesture.peak = Math.max(gesture.peak, verticalStrength);
+      if (verticalStrength > 1.8) {
+        const sign: -1 | 1 = vertical > 0 ? 1 : -1;
+        if (sign !== gesture.lastSign) {
+          gesture.reversals += 1;
+          gesture.lastSign = sign;
+        }
+      }
+
+      if (gesture.reversals >= 2 || rotationSpeed > 120 || elapsed > 460) {
+        verticalGestureRef.current = { direction: 0, startedAt: 0, peak: 0, reversals: 0, lastSign: 0 };
+        verticalCooldownRef.current = now + 180;
+      } else if (elapsed >= 180 && (verticalStrength < 1.15 || elapsed >= 300)) {
+        const strength = clamp((gesture.peak - 2.9) / 6.5, 0.2, 1);
+        if (gesture.direction > 0) {
+          if (audioRef.current) triggerReverbThrow(audioRef.current, strength);
+          setGestureLabel("快速上提 · 混响投掷");
+        } else {
+          if (audioRef.current) triggerDelayThrow(audioRef.current, strength);
+          setGestureLabel("快速下移 · 延迟投掷");
+        }
+        setPulse(0.8);
+        if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+        pulseTimerRef.current = setTimeout(() => setPulse(0), 180);
+        verticalGestureRef.current = { direction: 0, startedAt: 0, peak: 0, reversals: 0, lastSign: 0 };
+        verticalCooldownRef.current = now + 620;
+      }
     }
   }, [captureEvent]);
 
@@ -657,7 +707,7 @@ export function MotionScoreApp() {
           </h1>
           <p className="hero-copy">
             iPhone 是无线动作传感器，Mac 是声音与视觉引擎。
-            每次触键、倾斜与旋钮回弹，都成为可演奏、可看见的音乐事件。
+            每次触键、倾斜与垂直投掷，都成为可演奏、可看见的音乐事件。
           </p>
         </section>
 
@@ -777,7 +827,7 @@ export function MotionScoreApp() {
           <div className="meter-row"><span>冲击</span><i><b style={{ width: `${clamp(frame.magnitude / 14, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>横向</span><i><b style={{ width: `${clamp((frame.gamma + 45) / 90, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>俯仰</span><i><b style={{ width: `${clamp((frame.beta + 30) / 120, 0, 1) * 100}%` }} /></i></div>
-          <div className="meter-row"><span>旋钮</span><i><b style={{ width: `${isolatedTwistAmount(frame) * 100}%` }} /></i></div>
+          <div className="meter-row"><span>升降</span><i><b style={{ width: `${clamp(Math.abs(worldVerticalAcceleration(frame)) / 8, 0, 1) * 100}%` }} /></i></div>
         </div>
       </section>
 
