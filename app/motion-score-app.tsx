@@ -283,8 +283,8 @@ export function MotionScoreApp() {
     const gesture = verticalGestureRef.current;
 
     if (gesture.direction === 0 && now >= verticalCooldownRef.current) {
-      if (verticalStrength > 2.9 && dominance > 0.68 && rotationSpeed < 85) {
-        const direction: -1 | 1 = vertical > 0 ? 1 : -1;
+      if (vertical > 2.9 && dominance > 0.68 && rotationSpeed < 85) {
+        const direction = 1 as const;
         verticalGestureRef.current = {
           direction,
           startedAt: now,
@@ -309,13 +309,11 @@ export function MotionScoreApp() {
         verticalCooldownRef.current = now + 180;
       } else if (elapsed >= 180 && (verticalStrength < 1.15 || elapsed >= 300)) {
         const strength = clamp((gesture.peak - 2.9) / 6.5, 0.2, 1);
-        if (gesture.direction > 0) {
-          if (audioRef.current) triggerReverbThrow(audioRef.current, strength);
-          setGestureLabel("快速上提 · 混响投掷");
-        } else {
-          if (audioRef.current) triggerDelayThrow(audioRef.current, strength);
-          setGestureLabel("快速下移 · 延迟投掷");
+        if (audioRef.current) {
+          triggerReverbThrow(audioRef.current, strength);
+          triggerDelayThrow(audioRef.current, strength);
         }
+        setGestureLabel("快速上提 · 混响 + 延迟");
         setPulse(0.8);
         if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = setTimeout(() => setPulse(0), 180);
