@@ -219,18 +219,6 @@ export function updateMotionEffects(
   rig.delayFeedback.gain.setTargetAtTime(0.42 + twist * 0.22, now, 0.08);
 }
 
-export function triggerImpact(rig: AudioRig, strength: number) {
-  const now = rig.context.currentTime;
-  const amount = clamp(strength, 0, 1);
-  for (const voice of rig.voices.values()) {
-    voice.source.detune.cancelScheduledValues(now);
-    voice.source.detune.setValueAtTime(0, now);
-    voice.source.detune.linearRampToValueAtTime(-420 - amount * 620, now + 0.10);
-    voice.source.detune.exponentialRampToValueAtTime(-1, now + 0.48);
-  }
-
-}
-
 export function triggerPercussion(rig: AudioRig, velocity: number, pan: number) {
   const now = rig.context.currentTime;
   const gain = rig.context.createGain();

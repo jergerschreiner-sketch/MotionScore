@@ -16,7 +16,6 @@ import {
   loadBuiltInBank,
   noteOff,
   noteOn,
-  triggerImpact,
   triggerPercussion,
   updateMotionEffects,
   type AudioRig,
@@ -220,7 +219,6 @@ export function MotionScoreApp() {
   const peerRef = useRef<PeerInstance | null>(null);
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
-  const lastImpactRef = useRef(0);
   const lastTwistRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
   const shakeRef = useRef(0);
@@ -260,6 +258,7 @@ export function MotionScoreApp() {
     const twistTarget = isolatedTwistAmount(next);
     const cleanTwist = twistTarget > 0;
     twistRef.current = twistRef.current * 0.72 + twistTarget * 0.28;
+    const now = performance.now();
 
     if (audioRef.current) {
       updateMotionEffects(audioRef.current, {
@@ -270,24 +269,9 @@ export function MotionScoreApp() {
       });
     }
 
-    const now = performance.now();
     if (cleanTwist && now - lastTwistRef.current > 520) {
       lastTwistRef.current = now;
       setGestureLabel("旋钮回弹 · 延迟投掷");
-    }
-    const isDownstroke = next.magnitude > 8.5 && (next.ay < -3.2 || next.az < -6.5);
-    if (isDownstroke && now - lastImpactRef.current > 450) {
-      lastImpactRef.current = now;
-      setPulse(1);
-      setGestureLabel("下甩 · 音高俯冲");
-      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-      pulseTimerRef.current = setTimeout(() => setPulse(0), 150);
-      if (audioRef.current) {
-        triggerImpact(
-          audioRef.current,
-          clamp(next.magnitude / 15, 0.12, 1),
-        );
-      }
     }
   }, [captureEvent]);
 
