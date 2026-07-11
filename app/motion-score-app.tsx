@@ -8,6 +8,20 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  NOTE_DEFINITIONS,
+  allNotesOff,
+  createAudioRig,
+  isNoteMessage,
+  loadBuiltInBank,
+  noteOff,
+  noteOn,
+  triggerImpact,
+  triggerPercussion,
+  updateMotionEffects,
+  type AudioRig,
+  type NoteMessage,
+} from "./motion-audio";
 
 type Role = "home" | "stage" | "controller";
 
@@ -24,15 +38,6 @@ type SensorFrame = {
   rz: number;
   magnitude: number;
   t: number;
-};
-
-type AudioRig = {
-  context: AudioContext;
-  master: GainNode;
-  textureGain: GainNode;
-  textureFilter: BiquadFilterNode;
-  texturePan: StereoPannerNode;
-  sample: AudioBuffer | null;
 };
 
 const INITIAL_FRAME: SensorFrame = {
@@ -70,108 +75,26 @@ function isSensorFrame(value: unknown): value is SensorFrame {
   return (value as { type?: string }).type === "sensor";
 }
 
-function createNoiseBuffer(context: AudioContext, seconds = 2) {
-  const length = context.sampleRate * seconds;
-  const buffer = context.createBuffer(1, length, context.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let index = 0; index < length; index += 1) {
-    data[index] = Math.random() * 2 - 1;
-  }
-  return buffer;
-}
-
-function createAudioRig(): AudioRig {
-  const context = new AudioContext();
-  const master = context.createGain();
-  master.gain.value = 0.72;
-  master.connect(context.destination);
-
-  const texture = context.createBufferSource();
-  texture.buffer = createNoiseBuffer(context);
-  texture.loop = true;
-
-  const textureFilter = context.createBiquadFilter();
-  textureFilter.type = "bandpass";
-  textureFilter.frequency.value = 1800;
-  textureFilter.Q.value = 2.8;
-
-  const texturePan = context.createStereoPanner();
-  const textureGain = context.createGain();
-  textureGain.gain.value = 0;
-
-  texture
-    .connect(textureFilter)
-    .connect(texturePan)
-    .connect(textureGain)
-    .connect(master);
-  texture.start();
-
-  return {
-    context,
-    master,
-    textureGain,
-    textureFilter,
-    texturePan,
-    sample: null,
-  };
-}
-
-function triggerHit(rig: AudioRig, velocity: number, pan: number) {
-  const now = rig.context.currentTime;
-  const gain = rig.context.createGain();
-  const panner = rig.context.createStereoPanner();
-  panner.pan.value = clamp(pan, -1, 1);
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(clamp(velocity, 0.08, 1), now + 0.006);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
-  gain.connect(panner).connect(rig.master);
-
-  if (rig.sample) {
-    const source = rig.context.createBufferSource();
-    source.buffer = rig.sample;
-    source.connect(gain);
-    source.start(now);
-    return;
-  }
-
-  const oscillator = rig.context.createOscillator();
-  oscillator.type = "triangle";
-  oscillator.frequency.setValueAtTime(170, now);
-  oscillator.frequency.exponentialRampToValueAtTime(58, now + 0.2);
-  oscillator.connect(gain);
-  oscillator.start(now);
-  oscillator.stop(now + 0.25);
-}
-
-function updateTexture(
-  rig: AudioRig,
-  intensity: number,
-  pan: number,
-  brightness: number,
-) {
-  const now = rig.context.currentTime;
-  rig.textureGain.gain.setTargetAtTime(intensity * 0.18, now, 0.045);
-  rig.texturePan.pan.setTargetAtTime(clamp(pan, -1, 1), now, 0.06);
-  const frequency = 260 + clamp(brightness, 0, 1) * 5400;
-  rig.textureFilter.frequency.setTargetAtTime(frequency, now, 0.06);
-}
-
 function MotionCanvas({
   frame,
   pulse,
+  noteIndex,
 }: {
   frame: SensorFrame;
   pulse: number;
+  noteIndex: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef(frame);
   const pulseRef = useRef(pulse);
+  const noteIndexRef = useRef(noteIndex);
   const pointRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     frameRef.current = frame;
     pulseRef.current = pulse;
-  }, [frame, pulse]);
+    noteIndexRef.current = noteIndex;
+  }, [frame, pulse, noteIndex]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -202,7 +125,8 @@ function MotionCanvas({
       context.fillRect(0, 0, rect.width, rect.height);
 
       const energy = clamp(current.magnitude / 14, 0, 1);
-      const hue = 38 + clamp((current.rz + 180) / 360, 0, 1) * 105;
+      const baseHue = NOTE_DEFINITIONS[noteIndexRef.current]?.color ?? 42;
+      const hue = baseHue + clamp(current.rz / 220, -1, 1) * 24;
       context.beginPath();
       context.moveTo(previous.x, previous.y);
       context.quadraticCurveTo(
@@ -256,13 +180,18 @@ export function MotionScoreApp() {
   const [frame, setFrame] = useState(INITIAL_FRAME);
   const [pulse, setPulse] = useState(0);
   const [soundReady, setSoundReady] = useState(false);
-  const [sampleName, setSampleName] = useState("内置测试音");
+  const [bankStatus, setBankStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [sampleName, setSampleName] = useState("Inertia Glass · 原创多采样音色");
+  const [activeNotes, setActiveNotes] = useState<number[]>([]);
+  const [currentNoteName, setCurrentNoteName] = useState("—");
+  const [gestureLabel, setGestureLabel] = useState("等待演奏");
   const [message, setMessage] = useState("");
 
   const peerRef = useRef<PeerInstance | null>(null);
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
-  const lastHitRef = useRef(0);
+  const lastImpactRef = useRef(0);
+  const activeNotesRef = useRef<number[]>([]);
   const shakeRef = useRef(0);
   const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
   const lastSentRef = useRef(0);
@@ -282,21 +211,64 @@ export function MotionScoreApp() {
     shakeRef.current = shakeRef.current * 0.76 + energy * 0.24;
     const pan = clamp(next.gamma / 45, -1, 1);
     const brightness = clamp((next.beta + 30) / 120, 0, 1);
+    const spin = clamp(Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2) / 220, 0, 1);
 
     if (audioRef.current) {
-      updateTexture(audioRef.current, shakeRef.current, pan, brightness);
+      updateMotionEffects(audioRef.current, {
+        pan,
+        brightness,
+        shake: shakeRef.current,
+        spin,
+      });
     }
 
     const now = performance.now();
-    if (next.magnitude > 5.2 && now - lastHitRef.current > 115) {
-      lastHitRef.current = now;
+    const isDownstroke = next.magnitude > 8.5 && (next.ay < -3.2 || next.az < -6.5);
+    if (isDownstroke && now - lastImpactRef.current > 450) {
+      lastImpactRef.current = now;
       setPulse(1);
+      setGestureLabel("下甩 · 音高俯冲");
       if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
       pulseTimerRef.current = setTimeout(() => setPulse(0), 150);
       if (audioRef.current) {
-        triggerHit(audioRef.current, clamp(next.magnitude / 15, 0.12, 1), pan);
+        triggerImpact(
+          audioRef.current,
+          clamp(next.magnitude / 15, 0.12, 1),
+          activeNotesRef.current.at(-1),
+        );
       }
     }
+  }, []);
+
+  const processNote = useCallback((note: NoteMessage) => {
+    if (note.action === "allOff") {
+      activeNotesRef.current = [];
+      setActiveNotes([]);
+      setCurrentNoteName("—");
+      setGestureLabel("全部释音");
+      if (audioRef.current) allNotesOff(audioRef.current);
+      return;
+    }
+    if (typeof note.midi !== "number") return;
+    if (note.action === "on") {
+      const next = [...activeNotesRef.current.filter((value) => value !== note.midi), note.midi];
+      activeNotesRef.current = next;
+      setActiveNotes(next);
+      setCurrentNoteName(note.name ?? String(note.midi));
+      setGestureLabel("触键 · 发音");
+      setPulse(0.55);
+      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+      pulseTimerRef.current = setTimeout(() => setPulse(0), 130);
+      if (audioRef.current && audioRef.current.samples.size > 0) {
+        noteOn(audioRef.current, note.midi, note.velocity ?? 0.58);
+      } else {
+        setMessage("已收到音符，请先点击“启用声音”加载音色");
+      }
+      return;
+    }
+    activeNotesRef.current = activeNotesRef.current.filter((value) => value !== note.midi);
+    setActiveNotes(activeNotesRef.current);
+    if (audioRef.current) noteOff(audioRef.current, note.midi);
   }, []);
 
   useEffect(() => {
@@ -319,8 +291,12 @@ export function MotionScoreApp() {
         });
         connection.on("data", (data) => {
           if (isSensorFrame(data)) processFrame(data);
+          else if (isNoteMessage(data)) processNote(data);
         });
         connection.on("close", () => {
+          if (audioRef.current) allNotesOff(audioRef.current);
+          activeNotesRef.current = [];
+          setActiveNotes([]);
           setConnectionState("waiting");
           setMessage("连接已断开，等待重新连接");
         });
@@ -344,7 +320,7 @@ export function MotionScoreApp() {
       connectionRef.current = null;
       peerRef.current = null;
     };
-  }, [processFrame, role, roomCode]);
+  }, [processFrame, processNote, role, roomCode]);
 
   useEffect(() => {
     return () => {
@@ -470,6 +446,20 @@ export function MotionScoreApp() {
   const enableAudio = useCallback(async () => {
     if (!audioRef.current) audioRef.current = createAudioRig();
     await audioRef.current.context.resume();
+    if (audioRef.current.samples.size === 0) {
+      setBankStatus("loading");
+      setMessage("正在加载 24 个多力度采样…");
+      try {
+        await loadBuiltInBank(audioRef.current);
+        setBankStatus("ready");
+        setSampleName("Inertia Glass · 24-bit 多采样");
+        setMessage("音色引擎就绪：触屏定音，动作塑形");
+      } catch {
+        setBankStatus("error");
+        setMessage("音色加载失败，请刷新页面后重试");
+        return;
+      }
+    }
     setSoundReady(true);
   }, []);
 
@@ -477,10 +467,19 @@ export function MotionScoreApp() {
     if (!file) return;
     if (!audioRef.current) audioRef.current = createAudioRig();
     const data = await file.arrayBuffer();
-    audioRef.current.sample = await audioRef.current.context.decodeAudioData(data);
+    audioRef.current.customHit = await audioRef.current.context.decodeAudioData(data);
     setSampleName(file.name);
     setSoundReady(true);
   }, []);
+
+  const previewNote = useCallback(async (midi: number, name: string) => {
+    await enableAudio();
+    if (!audioRef.current || audioRef.current.samples.size === 0) return;
+    processNote({ type: "note", action: "on", midi, name, velocity: 0.64, t: Date.now() });
+    window.setTimeout(() => {
+      processNote({ type: "note", action: "off", midi, name, t: Date.now() });
+    }, 900);
+  }, [enableAudio, processNote]);
 
   const simulate = useCallback(
     (kind: "hit" | "tilt-left" | "tilt-right" | "shake") => {
@@ -491,8 +490,15 @@ export function MotionScoreApp() {
         shake: { ax: 5.2, ay: -3.8, az: 2.1, magnitude: 6.8, gamma: 12, beta: 72 },
       };
       processFrame({ ...INITIAL_FRAME, ...map[kind], t: Date.now() });
+      if (kind === "hit" && audioRef.current) {
+        triggerPercussion(audioRef.current, 0.72, 0);
+      }
     },
     [processFrame],
+  );
+
+  const visualNoteIndex = NOTE_DEFINITIONS.findIndex(
+    (note) => note.midi === activeNotes.at(-1),
   );
 
   if (role === "home") {
@@ -503,7 +509,7 @@ export function MotionScoreApp() {
         <header className="brand-row">
           <span className="brand-mark">MS</span>
           <span>惯性谱 / MotionScore</span>
-          <span className="prototype-tag">PROTOTYPE 01</span>
+          <span className="prototype-tag">PROTOTYPE 02</span>
         </header>
 
         <section className="hero">
@@ -609,7 +615,7 @@ export function MotionScoreApp() {
 
   return (
     <main className="stage-shell">
-      <MotionCanvas frame={frame} pulse={pulse} />
+      <MotionCanvas frame={frame} pulse={pulse} noteIndex={visualNoteIndex} />
       <header className="stage-header">
         <button className="back-button light" onClick={() => setRole("home")}>
           ← 退出舞台
@@ -635,7 +641,14 @@ export function MotionScoreApp() {
           <div className="meter-row"><span>冲击</span><i><b style={{ width: `${clamp(frame.magnitude / 14, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>横向</span><i><b style={{ width: `${clamp((frame.gamma + 45) / 90, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>俯仰</span><i><b style={{ width: `${clamp((frame.beta + 30) / 120, 0, 1) * 100}%` }} /></i></div>
+          <div className="meter-row"><span>旋转</span><i><b style={{ width: `${clamp(Math.sqrt(frame.rx ** 2 + frame.ry ** 2 + frame.rz ** 2) / 220, 0, 1) * 100}%` }} /></i></div>
         </div>
+      </section>
+
+      <section className="performance-state glass-card">
+        <span className="panel-label">PERFORMANCE STATE</span>
+        <div><strong>{currentNoteName}</strong><span>{gestureLabel}</span></div>
+        <small>{activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
       </section>
 
       <section className="stage-controls glass-card">
@@ -643,8 +656,8 @@ export function MotionScoreApp() {
           <span className="panel-label">SOUND ENGINE</span>
           <strong>{sampleName}</strong>
         </div>
-        <button className={soundReady ? "active" : ""} onClick={() => void enableAudio()}>
-          {soundReady ? "声音已启用" : "启用声音"}
+        <button className={soundReady ? "active" : ""} onClick={() => void enableAudio()} disabled={bankStatus === "loading"}>
+          {bankStatus === "loading" ? "加载音色中…" : soundReady ? "声音已启用" : "启用声音"}
         </button>
         <label className="upload-button">
           更换采样
@@ -654,6 +667,17 @@ export function MotionScoreApp() {
             onChange={(event) => void loadSample(event.target.files?.[0])}
           />
         </label>
+      </section>
+
+      <section className="stage-keyboard glass-card">
+        <span className="panel-label">电脑试听音阶</span>
+        <div>
+          {NOTE_DEFINITIONS.map((note) => (
+            <button key={note.midi} onClick={() => void previewNote(note.midi, note.name)}>
+              {note.name}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="simulator glass-card">

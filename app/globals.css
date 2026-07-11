@@ -525,7 +525,8 @@ button {
 }
 
 .stage-controls,
-.simulator {
+.simulator,
+.stage-keyboard {
   position: absolute;
   z-index: 2;
   right: 32px;
@@ -539,6 +540,36 @@ button {
 
 .stage-controls {
   top: 116px;
+}
+
+.performance-state {
+  position: absolute;
+  z-index: 2;
+  top: 116px;
+  left: 50%;
+  width: 220px;
+  padding: 17px;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.performance-state > div {
+  display: grid;
+  margin: 10px 0 6px;
+  gap: 4px;
+}
+
+.performance-state strong {
+  color: var(--acid);
+  font-family: ui-monospace, monospace;
+  font-size: 35px;
+  font-weight: 480;
+}
+
+.performance-state span,
+.performance-state small {
+  color: rgba(241, 239, 231, 0.48);
+  font-size: 9px;
 }
 
 .stage-controls > div {
@@ -577,7 +608,7 @@ button {
 }
 
 .simulator {
-  top: 198px;
+  top: 304px;
   display: grid;
 }
 
@@ -589,6 +620,33 @@ button {
 }
 
 .simulator button:hover {
+  border-color: var(--acid);
+  color: var(--acid);
+}
+
+.stage-keyboard {
+  top: 198px;
+  display: grid;
+}
+
+.stage-keyboard > div {
+  display: grid;
+  margin-top: 10px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.stage-keyboard button {
+  min-width: 0;
+  padding: 10px 2px;
+  border: 1px solid rgba(241, 239, 231, 0.14);
+  border-radius: 7px;
+  background: rgba(241, 239, 231, 0.04);
+  cursor: pointer;
+  font: 8px ui-monospace, monospace;
+}
+
+.stage-keyboard button:hover {
   border-color: var(--acid);
   color: var(--acid);
 }
@@ -657,7 +715,8 @@ button {
   }
 
   .stage-controls,
-  .simulator {
+  .simulator,
+  .stage-keyboard {
     right: 16px;
     left: 16px;
     width: auto;
@@ -667,8 +726,16 @@ button {
     top: 272px;
   }
 
-  .simulator {
+  .performance-state {
+    top: 444px;
+  }
+
+  .stage-keyboard {
     top: 354px;
+  }
+
+  .simulator {
+    display: none;
   }
 
   .stage-footer {
