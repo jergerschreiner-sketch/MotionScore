@@ -98,11 +98,11 @@ export function createAudioRig(): AudioRig {
   tremoloLfo.frequency.value = 5;
   dry.gain.value = 0.86;
   reverbSend.gain.value = 0.06;
-  wet.gain.value = 1.0;
+  wet.gain.value = 1.18;
   delaySend.gain.value = 0;
-  delay.delayTime.value = 0.34;
-  delayFeedback.gain.value = 0.54;
-  delayWet.gain.value = 0.82;
+  delay.delayTime.value = 0.38;
+  delayFeedback.gain.value = 0.62;
+  delayWet.gain.value = 1.0;
   limiter.threshold.value = -4;
   limiter.knee.value = 0;
   limiter.ratio.value = 20;
@@ -231,8 +231,8 @@ export function triggerReverbThrow(rig: AudioRig, strength: number) {
   const amount = clamp(strength, 0, 1);
   rig.reverbSend.gain.cancelScheduledValues(now);
   rig.reverbSend.gain.setValueAtTime(Math.max(0.06, rig.reverbSend.gain.value), now);
-  rig.reverbSend.gain.linearRampToValueAtTime(1.02 + amount * 0.38, now + 0.025);
-  rig.reverbSend.gain.setTargetAtTime(0.06, now + 0.42, 0.085);
+  rig.reverbSend.gain.linearRampToValueAtTime(1.32 + amount * 0.48, now + 0.025);
+  rig.reverbSend.gain.setTargetAtTime(0.06, now + 0.55, 0.11);
 }
 
 export function triggerDelayThrow(rig: AudioRig, strength: number) {
@@ -241,9 +241,9 @@ export function triggerDelayThrow(rig: AudioRig, strength: number) {
   rig.delaySend.gain.cancelScheduledValues(now);
   rig.delayFeedback.gain.cancelScheduledValues(now);
   rig.delaySend.gain.setValueAtTime(Math.max(0.0001, rig.delaySend.gain.value), now);
-  rig.delaySend.gain.linearRampToValueAtTime(0.92 + amount * 0.32, now + 0.02);
-  rig.delaySend.gain.setTargetAtTime(0.0001, now + 0.34, 0.065);
-  rig.delayFeedback.gain.setTargetAtTime(0.52 + amount * 0.14, now, 0.06);
+  rig.delaySend.gain.linearRampToValueAtTime(1.12 + amount * 0.42, now + 0.02);
+  rig.delaySend.gain.setTargetAtTime(0.0001, now + 0.45, 0.085);
+  rig.delayFeedback.gain.setTargetAtTime(0.60 + amount * 0.15, now, 0.06);
 }
 
 export function triggerPercussion(rig: AudioRig, velocity: number, pan: number) {
