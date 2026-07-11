@@ -38,6 +38,10 @@ export type AudioRig = {
   dry: GainNode;
   convolver: ConvolverNode;
   wet: GainNode;
+  delaySend: GainNode;
+  delay: DelayNode;
+  delayFeedback: GainNode;
+  delayWet: GainNode;
   capture: MediaStreamAudioDestinationNode;
   samples: Map<string, AudioBuffer>;
   voices: Map<number, Voice>;
@@ -74,6 +78,10 @@ export function createAudioRig(): AudioRig {
   const dry = context.createGain();
   const convolver = context.createConvolver();
   const wet = context.createGain();
+  const delaySend = context.createGain();
+  const delay = context.createDelay(1.5);
+  const delayFeedback = context.createGain();
+  const delayWet = context.createGain();
   const capture = context.createMediaStreamDestination();
 
   master.gain.value = 0.78;
@@ -87,11 +95,17 @@ export function createAudioRig(): AudioRig {
   tremoloLfo.frequency.value = 5;
   dry.gain.value = 0.86;
   wet.gain.value = 0.10;
+  delaySend.gain.value = 0;
+  delay.delayTime.value = 0.32;
+  delayFeedback.gain.value = 0.46;
+  delayWet.gain.value = 0.42;
   convolver.buffer = makeImpulse(context);
 
   input.connect(filter).connect(tremolo).connect(panner);
   panner.connect(dry).connect(master);
   panner.connect(convolver).connect(wet).connect(master);
+  panner.connect(delaySend).connect(delay).connect(delayWet).connect(master);
+  delay.connect(delayFeedback).connect(delay);
   tremoloLfo.connect(tremoloDepth).connect(tremolo.gain);
   master.connect(context.destination);
   master.connect(capture);
@@ -109,6 +123,10 @@ export function createAudioRig(): AudioRig {
     dry,
     convolver,
     wet,
+    delaySend,
+    delay,
+    delayFeedback,
+    delayWet,
     capture,
     samples: new Map(),
     voices: new Map(),
@@ -179,13 +197,13 @@ export function allNotesOff(rig: AudioRig) {
 
 export function updateMotionEffects(
   rig: AudioRig,
-  values: { pan: number; brightness: number; shake: number; spin: number },
+  values: { pan: number; brightness: number; shake: number; twist: number },
 ) {
   const now = rig.context.currentTime;
   const pan = clamp(values.pan, -1, 1);
   const brightness = clamp(values.brightness, 0, 1);
   const shake = clamp(values.shake, 0, 1);
-  const spin = clamp(values.spin, 0, 1);
+  const twist = clamp(values.twist, 0, 1);
   const cutoff = 320 * Math.pow(28, brightness);
   const depth = shake * 0.46;
 
@@ -195,11 +213,13 @@ export function updateMotionEffects(
   rig.tremolo.gain.setTargetAtTime(1 - depth, now, 0.045);
   rig.tremoloDepth.gain.setTargetAtTime(depth, now, 0.045);
   rig.tremoloLfo.frequency.setTargetAtTime(3.2 + shake * 12.5, now, 0.055);
-  rig.wet.gain.setTargetAtTime(0.08 + spin * 0.56, now, 0.11);
-  rig.dry.gain.setTargetAtTime(0.88 - spin * 0.16, now, 0.12);
+  rig.wet.gain.setTargetAtTime(0.10, now, 0.11);
+  rig.dry.gain.setTargetAtTime(0.88, now, 0.12);
+  rig.delaySend.gain.setTargetAtTime(twist * 0.74, now, twist > 0 ? 0.025 : 0.07);
+  rig.delayFeedback.gain.setTargetAtTime(0.42 + twist * 0.22, now, 0.08);
 }
 
-export function triggerImpact(rig: AudioRig, strength: number, midi?: number) {
+export function triggerImpact(rig: AudioRig, strength: number) {
   const now = rig.context.currentTime;
   const amount = clamp(strength, 0, 1);
   for (const voice of rig.voices.values()) {
@@ -209,18 +229,6 @@ export function triggerImpact(rig: AudioRig, strength: number, midi?: number) {
     voice.source.detune.exponentialRampToValueAtTime(-1, now + 0.48);
   }
 
-  const frequency = 440 * Math.pow(2, ((midi ?? 48) - 69) / 12) * 0.5;
-  const oscillator = rig.context.createOscillator();
-  const gain = rig.context.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(Math.max(38, frequency), now);
-  oscillator.frequency.exponentialRampToValueAtTime(Math.max(26, frequency * 0.62), now + 0.25);
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.08 + amount * 0.24, now + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-  oscillator.connect(gain).connect(rig.master);
-  oscillator.start(now);
-  oscillator.stop(now + 0.34);
 }
 
 export function triggerPercussion(rig: AudioRig, velocity: number, pan: number) {

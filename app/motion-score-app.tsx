@@ -93,6 +93,13 @@ function isSensorFrame(value: unknown): value is SensorFrame {
   return (value as { type?: string }).type === "sensor";
 }
 
+function isolatedTwistAmount(frame: SensorFrame) {
+  const twistRate = Math.abs(frame.rx);
+  const competingRate = Math.max(Math.abs(frame.ry), Math.abs(frame.rz), 1);
+  const clean = twistRate > 38 && twistRate > competingRate * 1.75 && frame.magnitude < 4.8;
+  return clean ? clamp((twistRate - 35) / 145, 0, 1) : 0;
+}
+
 function MotionCanvas({
   frame,
   pulse,
@@ -214,8 +221,10 @@ export function MotionScoreApp() {
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
   const lastImpactRef = useRef(0);
+  const lastTwistRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
   const shakeRef = useRef(0);
+  const twistRef = useRef(0);
   const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
   const lastSentRef = useRef(0);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,18 +257,24 @@ export function MotionScoreApp() {
     shakeRef.current = shakeRef.current * 0.76 + energy * 0.24;
     const pan = clamp(next.gamma / 45, -1, 1);
     const brightness = clamp((next.beta + 30) / 120, 0, 1);
-    const spin = clamp(Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2) / 220, 0, 1);
+    const twistTarget = isolatedTwistAmount(next);
+    const cleanTwist = twistTarget > 0;
+    twistRef.current = twistRef.current * 0.72 + twistTarget * 0.28;
 
     if (audioRef.current) {
       updateMotionEffects(audioRef.current, {
         pan,
         brightness,
         shake: shakeRef.current,
-        spin,
+        twist: twistRef.current,
       });
     }
 
     const now = performance.now();
+    if (cleanTwist && now - lastTwistRef.current > 520) {
+      lastTwistRef.current = now;
+      setGestureLabel("旋钮回弹 · 延迟投掷");
+    }
     const isDownstroke = next.magnitude > 8.5 && (next.ay < -3.2 || next.az < -6.5);
     if (isDownstroke && now - lastImpactRef.current > 450) {
       lastImpactRef.current = now;
@@ -271,7 +286,6 @@ export function MotionScoreApp() {
         triggerImpact(
           audioRef.current,
           clamp(next.magnitude / 15, 0.12, 1),
-          activeNotesRef.current.at(-1),
         );
       }
     }
@@ -659,7 +673,7 @@ export function MotionScoreApp() {
           </h1>
           <p className="hero-copy">
             iPhone 是无线动作传感器，Mac 是声音与视觉引擎。
-            每次甩动、倾斜与旋转，都成为可演奏、可看见的音乐事件。
+            每次触键、倾斜与旋钮回弹，都成为可演奏、可看见的音乐事件。
           </p>
         </section>
 
@@ -779,7 +793,7 @@ export function MotionScoreApp() {
           <div className="meter-row"><span>冲击</span><i><b style={{ width: `${clamp(frame.magnitude / 14, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>横向</span><i><b style={{ width: `${clamp((frame.gamma + 45) / 90, 0, 1) * 100}%` }} /></i></div>
           <div className="meter-row"><span>俯仰</span><i><b style={{ width: `${clamp((frame.beta + 30) / 120, 0, 1) * 100}%` }} /></i></div>
-          <div className="meter-row"><span>旋转</span><i><b style={{ width: `${clamp(Math.sqrt(frame.rx ** 2 + frame.ry ** 2 + frame.rz ** 2) / 220, 0, 1) * 100}%` }} /></i></div>
+          <div className="meter-row"><span>旋钮</span><i><b style={{ width: `${isolatedTwistAmount(frame) * 100}%` }} /></i></div>
         </div>
       </section>
 
