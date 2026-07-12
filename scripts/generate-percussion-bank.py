@@ -20,17 +20,29 @@ def write24(path: Path, stereo: np.ndarray) -> None:
         wav.setnchannels(2); wav.setsampwidth(3); wav.setframerate(RATE); wav.writeframes(packed.tobytes())
 
 
-def shaker() -> np.ndarray:
-    duration = 0.18
+def shaker(seed: int) -> np.ndarray:
+    duration = 0.16
     t = np.arange(int(RATE * duration)) / RATE
-    rng = np.random.default_rng(20260712)
-    noise = rng.normal(0, 1, t.size)
-    bright = np.concatenate(([0.0], np.diff(noise)))
-    grains = np.zeros_like(t)
-    for onset in rng.uniform(0, 0.09, 15):
-        grains += np.exp(-np.maximum(t - onset, 0) / rng.uniform(0.006, 0.018)) * (t >= onset)
-    body = np.tanh(bright * grains * np.exp(-t / 0.085) * 0.42)
-    return np.column_stack((body, np.roll(body, 17) * 0.94))
+    rng = np.random.default_rng(seed)
+    stereo = np.zeros((t.size, 2))
+    for _ in range(24):
+        onset = rng.uniform(0.002, 0.085)
+        start = int(onset * RATE)
+        local = t[: t.size - start]
+        decay = rng.uniform(0.0025, 0.010)
+        envelope = np.exp(-local / decay)
+        frequency = rng.uniform(3_800, 11_800)
+        resonance = np.sin(2 * np.pi * frequency * local + rng.uniform(0, 2 * np.pi))
+        grit = rng.normal(0, 1, local.size)
+        grit = np.concatenate(([0.0], np.diff(grit)))
+        particle = (resonance * 0.42 + grit * 0.22) * envelope * rng.uniform(0.18, 0.55)
+        pan = rng.uniform(0.18, 0.82)
+        stereo[start:, 0] += particle * (1 - pan)
+        stereo[start:, 1] += particle * pan
+    shell = rng.normal(0, 1, t.size)
+    shell = np.convolve(shell, np.ones(5) / 5, mode="same") * np.exp(-t / 0.055) * 0.035
+    stereo += shell[:, None]
+    return np.tanh(stereo * 2.6)
 
 
 def heavy_drum() -> np.ndarray:
@@ -45,9 +57,11 @@ def heavy_drum() -> np.ndarray:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    write24(OUT / "shaker.wav", shaker())
+    for index in range(4):
+        name = "shaker.wav" if index == 0 else f"shaker-{index + 1}.wav"
+        write24(OUT / name, shaker(20260712 + index * 97))
     write24(OUT / "heavy-drum.wav", heavy_drum())
-    (OUT / "README.txt").write_text("Kinetic Percussion: original shaker and heavy drum; 48 kHz / 24-bit / stereo.\n", encoding="utf-8")
+    (OUT / "README.txt").write_text("Kinetic Percussion: four original shaker variations and one heavy drum; 48 kHz / 24-bit / stereo.\n", encoding="utf-8")
     print(OUT)
 
 

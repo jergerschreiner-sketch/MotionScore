@@ -165,7 +165,7 @@ export async function loadBuiltInBank(rig: AudioRig) {
 
 export async function loadPercussionBank(rig: AudioRig) {
   await Promise.all(
-    (["shaker", "heavy-drum"] as const).map(async (name) => {
+    (["shaker", "shaker-2", "shaker-3", "shaker-4", "heavy-drum"] as const).map(async (name) => {
       const response = await fetch(`/audio/kinetic-percussion/${name}.wav`);
       if (!response.ok) throw new Error(`Unable to load ${name}`);
       rig.samples.set(`percussion:${name}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
@@ -178,13 +178,15 @@ export function triggerPercussionVoice(
   kind: "shaker" | "heavy-drum",
   strength: number,
 ) {
-  const buffer = rig.samples.get(`percussion:${kind}`);
+  const shakerVariants = ["shaker", "shaker-2", "shaker-3", "shaker-4"];
+  const key = kind === "shaker" ? shakerVariants[Math.floor(Math.random() * shakerVariants.length)] : "heavy-drum";
+  const buffer = rig.samples.get(`percussion:${key}`) ?? rig.samples.get(`percussion:${kind}`);
   if (!buffer) return false;
   const now = rig.context.currentTime;
   const source = rig.context.createBufferSource();
   const gain = rig.context.createGain();
   source.buffer = buffer;
-  source.playbackRate.value = kind === "shaker" ? 0.9 + Math.random() * 0.22 : 0.94 + Math.random() * 0.07;
+  source.playbackRate.value = kind === "shaker" ? 0.96 + Math.random() * 0.09 : 0.94 + Math.random() * 0.07;
   gain.gain.value = kind === "shaker" ? clamp(0.18 + strength * 0.48, 0.16, 0.68) : clamp(0.58 + strength * 0.42, 0.55, 1);
   source.connect(gain).connect(rig.input);
   source.start(now);

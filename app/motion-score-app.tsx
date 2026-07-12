@@ -230,7 +230,7 @@ export function MotionScoreApp() {
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
   const instrumentModeRef = useRef<InstrumentMode>("tonal");
-  const lastShakerRef = useRef(0);
+  const shakerArmedRef = useRef(true);
   const lastDrumRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
   const shakeRef = useRef(0);
@@ -275,6 +275,9 @@ export function MotionScoreApp() {
     const pan = clamp(next.gamma / 45, -1, 1);
     const brightness = clamp((next.beta + 30) / 120, 0, 1);
     const now = performance.now();
+    const vertical = worldVerticalAcceleration(next);
+    const horizontal = Math.sqrt(Math.max(0, next.magnitude ** 2 - vertical ** 2));
+    const rotationSpeed = Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2);
 
     if (audioRef.current) {
       updateMotionEffects(audioRef.current, {
@@ -287,26 +290,33 @@ export function MotionScoreApp() {
     if (instrumentModeRef.current === "percussion") {
       if (next.magnitude > 7.8 && now - lastDrumRef.current > 280) {
         lastDrumRef.current = now;
+        shakerArmedRef.current = false;
         if (audioRef.current) triggerPercussionVoice(audioRef.current, "heavy-drum", clamp(next.magnitude / 14, 0.45, 1));
         setGestureLabel("重冲击 · 重鼓");
         setPulse(1);
         if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = setTimeout(() => setPulse(0), 170);
-      } else if (next.magnitude > 1.15 && next.magnitude < 7.8) {
-        const interval = 165 - clamp(next.magnitude / 7.8, 0, 1) * 90;
-        if (now - lastShakerRef.current > interval) {
-          lastShakerRef.current = now;
-          if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(next.magnitude / 6, 0.15, 1));
-          setGestureLabel("轻微晃动 · 沙锤");
+      } else {
+        if (horizontal < 0.72) shakerArmedRef.current = true;
+        if (
+          shakerArmedRef.current &&
+          horizontal > 1.8 &&
+          Math.abs(vertical) < 1.65 &&
+          rotationSpeed < 110
+        ) {
+          shakerArmedRef.current = false;
+          if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(horizontal / 5.5, 0.2, 1));
+          setGestureLabel("水平晃动 · 沙锤");
+          setPulse(0.34);
+          if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+          pulseTimerRef.current = setTimeout(() => setPulse(0), 90);
         }
       }
       return;
     }
 
-    const vertical = worldVerticalAcceleration(next);
     const verticalStrength = Math.abs(vertical);
     const dominance = verticalStrength / Math.max(next.magnitude, 0.01);
-    const rotationSpeed = Math.sqrt(next.rx ** 2 + next.ry ** 2 + next.rz ** 2);
     const gesture = verticalGestureRef.current;
 
     if (gesture.direction === 0 && now >= verticalCooldownRef.current) {
@@ -599,7 +609,12 @@ export function MotionScoreApp() {
     await enableAudio();
     if (!audioRef.current) return;
     const data = await file.arrayBuffer();
-    audioRef.current.samples.set(`percussion:${kind}`, await audioRef.current.context.decodeAudioData(data));
+    const buffer = await audioRef.current.context.decodeAudioData(data);
+    if (kind === "shaker") {
+      ["shaker", "shaker-2", "shaker-3", "shaker-4"].forEach((name) => audioRef.current?.samples.set(`percussion:${name}`, buffer));
+    } else {
+      audioRef.current.samples.set("percussion:heavy-drum", buffer);
+    }
     setSoundReady(true);
     setMessage(`${kind === "shaker" ? "沙锤" : "重鼓"}采样已替换为 ${file.name}`);
   }, [enableAudio]);
@@ -875,7 +890,7 @@ export function MotionScoreApp() {
       <section className="performance-state glass-card">
         <span className="panel-label">PERFORMANCE STATE</span>
         <div><strong>{currentNoteName}</strong><span>{gestureLabel}</span></div>
-        <small>{instrumentMode === "percussion" ? "轻晃沙锤 · 重击重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
+        <small>{instrumentMode === "percussion" ? "水平每晃一次响一次 · 重击重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
       </section>
 
       <section className="stage-controls glass-card">
@@ -897,7 +912,7 @@ export function MotionScoreApp() {
               <b>Inertia Glass</b><span>旋律采样乐器</span><small>8 音高 · 24 多力度采样</small>
             </button>
             <button className={instrumentMode === "percussion" ? "active" : ""} onClick={() => selectInstrument("percussion")}>
-              <b>Kinetic Percussion</b><span>动作打击乐器</span><small>轻晃沙锤 · 重击重鼓</small>
+              <b>Kinetic Percussion</b><span>动作打击乐器</span><small>水平逐次沙锤 · 重击重鼓</small>
             </button>
           </div>
           <div className="sample-replace">
