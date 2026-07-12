@@ -57,11 +57,9 @@ def heavy_drum() -> np.ndarray:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for index in range(4):
-        name = "shaker.wav" if index == 0 else f"shaker-{index + 1}.wav"
-        write24(OUT / name, shaker(20260712 + index * 97))
+    write24(OUT / "shaker.wav", shaker(20260712))
     write24(OUT / "heavy-drum.wav", heavy_drum())
-    (OUT / "README.txt").write_text("Kinetic Percussion: four original shaker variations and one heavy drum; 48 kHz / 24-bit / stereo.\n", encoding="utf-8")
+    (OUT / "README.txt").write_text("Kinetic Percussion: one original shaker and one heavy drum; 48 kHz / 24-bit / stereo.\n", encoding="utf-8")
     print(OUT)
 
 

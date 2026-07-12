@@ -165,7 +165,7 @@ export async function loadBuiltInBank(rig: AudioRig) {
 
 export async function loadPercussionBank(rig: AudioRig) {
   await Promise.all(
-    (["shaker", "shaker-2", "shaker-3", "shaker-4", "heavy-drum"] as const).map(async (name) => {
+    (["shaker", "heavy-drum"] as const).map(async (name) => {
       const response = await fetch(`/audio/kinetic-percussion/${name}.wav`);
       if (!response.ok) throw new Error(`Unable to load ${name}`);
       rig.samples.set(`percussion:${name}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
@@ -178,9 +178,7 @@ export function triggerPercussionVoice(
   kind: "shaker" | "heavy-drum",
   strength: number,
 ) {
-  const shakerVariants = ["shaker", "shaker-2", "shaker-3", "shaker-4"];
-  const key = kind === "shaker" ? shakerVariants[Math.floor(Math.random() * shakerVariants.length)] : "heavy-drum";
-  const buffer = rig.samples.get(`percussion:${key}`) ?? rig.samples.get(`percussion:${kind}`);
+  const buffer = rig.samples.get(`percussion:${kind}`);
   if (!buffer) return false;
   const now = rig.context.currentTime;
   const source = rig.context.createBufferSource();
