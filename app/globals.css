@@ -636,7 +636,8 @@ button {
   gap: 4px;
 }
 
-.stage-keyboard.percussion > div {
+.stage-keyboard.shaker > div,
+.stage-keyboard.drum > div {
   grid-template-columns: repeat(2, 1fr);
 }
 
@@ -678,7 +679,7 @@ button {
 .library-grid {
   display: grid;
   margin-top: 18px;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 9px;
 }
 

@@ -27,7 +27,7 @@ import {
 } from "./motion-audio";
 
 type Role = "home" | "stage" | "controller";
-type InstrumentMode = "tonal" | "percussion";
+type InstrumentMode = "tonal" | "shaker" | "drum";
 
 type SensorFrame = {
   type: "sensor";
@@ -287,7 +287,7 @@ export function MotionScoreApp() {
       });
     }
 
-    if (instrumentModeRef.current === "percussion") {
+    if (instrumentModeRef.current === "drum") {
       if (next.magnitude > 7.8 && now - lastDrumRef.current > 280) {
         lastDrumRef.current = now;
         shakerArmedRef.current = false;
@@ -296,21 +296,24 @@ export function MotionScoreApp() {
         setPulse(1);
         if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = setTimeout(() => setPulse(0), 170);
-      } else {
-        if (horizontal < 0.72) shakerArmedRef.current = true;
-        if (
-          shakerArmedRef.current &&
-          horizontal > 1.8 &&
-          Math.abs(vertical) < 1.65 &&
-          rotationSpeed < 110
-        ) {
-          shakerArmedRef.current = false;
-          if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(horizontal / 5.5, 0.2, 1));
-          setGestureLabel("水平晃动 · 沙锤");
-          setPulse(0.34);
-          if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-          pulseTimerRef.current = setTimeout(() => setPulse(0), 90);
-        }
+      }
+      return;
+    }
+
+    if (instrumentModeRef.current === "shaker") {
+      if (horizontal < 0.72) shakerArmedRef.current = true;
+      if (
+        shakerArmedRef.current &&
+        horizontal > 1.8 &&
+        Math.abs(vertical) < 1.65 &&
+        rotationSpeed < 110
+      ) {
+        shakerArmedRef.current = false;
+        if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(horizontal / 5.5, 0.2, 1));
+        setGestureLabel("水平晃动 · 沙锤");
+        setPulse(0.34);
+        if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+        pulseTimerRef.current = setTimeout(() => setPulse(0), 90);
       }
       return;
     }
@@ -362,7 +365,7 @@ export function MotionScoreApp() {
 
   const processNote = useCallback((note: NoteMessage) => {
     captureEvent(note);
-    if (instrumentModeRef.current === "percussion") return;
+    if (instrumentModeRef.current !== "tonal") return;
     if (note.action === "allOff") {
       activeNotesRef.current = [];
       setActiveNotes([]);
@@ -581,7 +584,7 @@ export function MotionScoreApp() {
         await loadBuiltInBank(audioRef.current);
         await loadPercussionBank(audioRef.current);
         setBankStatus("ready");
-        setSampleName(instrumentModeRef.current === "tonal" ? "Inertia Glass · 24-bit 多采样" : "Kinetic Percussion · 沙锤与重鼓");
+        setSampleName(instrumentModeRef.current === "tonal" ? "Inertia Glass · 24-bit 多采样" : instrumentModeRef.current === "shaker" ? "Kinetic Shaker · 4 变体" : "Impact Drum · 重鼓");
         setMessage("音色引擎就绪：触屏定音，动作塑形");
       } catch {
         setBankStatus("error");
@@ -595,9 +598,9 @@ export function MotionScoreApp() {
   const selectInstrument = useCallback((mode: InstrumentMode) => {
     instrumentModeRef.current = mode;
     setInstrumentMode(mode);
-    setSampleName(mode === "tonal" ? "Inertia Glass · 24-bit 多采样" : "Kinetic Percussion · 沙锤与重鼓");
-    setCurrentNoteName(mode === "tonal" ? "—" : "PERC");
-    setGestureLabel(mode === "tonal" ? "手机触键演奏" : "等待晃动或冲击");
+    setSampleName(mode === "tonal" ? "Inertia Glass · 24-bit 多采样" : mode === "shaker" ? "Kinetic Shaker · 4 变体" : "Impact Drum · 重鼓");
+    setCurrentNoteName(mode === "tonal" ? "—" : mode === "shaker" ? "SHAKER" : "DRUM");
+    setGestureLabel(mode === "tonal" ? "手机触键演奏" : mode === "shaker" ? "等待水平晃动" : "等待明显冲击");
     if (audioRef.current) allNotesOff(audioRef.current);
     activeNotesRef.current = [];
     setActiveNotes([]);
@@ -890,7 +893,7 @@ export function MotionScoreApp() {
       <section className="performance-state glass-card">
         <span className="panel-label">PERFORMANCE STATE</span>
         <div><strong>{currentNoteName}</strong><span>{gestureLabel}</span></div>
-        <small>{instrumentMode === "percussion" ? "水平每晃一次响一次 · 重击重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
+        <small>{instrumentMode === "shaker" ? "水平每晃一次响一次" : instrumentMode === "drum" ? "明显冲击触发重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
       </section>
 
       <section className="stage-controls glass-card">
@@ -911,8 +914,11 @@ export function MotionScoreApp() {
             <button className={instrumentMode === "tonal" ? "active" : ""} onClick={() => selectInstrument("tonal")}>
               <b>Inertia Glass</b><span>旋律采样乐器</span><small>8 音高 · 24 多力度采样</small>
             </button>
-            <button className={instrumentMode === "percussion" ? "active" : ""} onClick={() => selectInstrument("percussion")}>
-              <b>Kinetic Percussion</b><span>动作打击乐器</span><small>水平逐次沙锤 · 重击重鼓</small>
+            <button className={instrumentMode === "shaker" ? "active" : ""} onClick={() => selectInstrument("shaker")}>
+              <b>Kinetic Shaker</b><span>动作沙锤</span><small>水平晃动 · 一动一声</small>
+            </button>
+            <button className={instrumentMode === "drum" ? "active" : ""} onClick={() => selectInstrument("drum")}>
+              <b>Impact Drum</b><span>动作重鼓</span><small>明显冲击 · 力度响应</small>
             </button>
           </div>
           <div className="sample-replace">
@@ -939,16 +945,15 @@ export function MotionScoreApp() {
       </section>
 
       <section className={`stage-keyboard glass-card ${instrumentMode}`}>
-        <span className="panel-label">{instrumentMode === "tonal" ? "电脑试听音阶" : "电脑试听打击乐"}</span>
+        <span className="panel-label">{instrumentMode === "tonal" ? "电脑试听音阶" : instrumentMode === "shaker" ? "电脑试听沙锤" : "电脑试听重鼓"}</span>
         <div>
           {instrumentMode === "tonal" ? NOTE_DEFINITIONS.map((note) => (
             <button key={note.midi} onClick={() => void previewNote(note.midi, note.name)}>
               {note.name}
             </button>
-          )) : <>
-            <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "shaker", 0.55)}>沙锤</button>
-            <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "heavy-drum", 0.9)}>重鼓</button>
-          </>}
+          )) : instrumentMode === "shaker" ?
+            <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "shaker", 0.55)}>沙锤</button> :
+            <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "heavy-drum", 0.9)}>重鼓</button>}
         </div>
       </section>
 
