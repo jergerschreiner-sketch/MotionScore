@@ -230,7 +230,7 @@ export function MotionScoreApp() {
   const connectionRef = useRef<DataConnection | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
   const instrumentModeRef = useRef<InstrumentMode>("tonal");
-  const shakerArmedRef = useRef(true);
+  const shakerActiveUntilRef = useRef(0);
   const lastShakerRef = useRef(0);
   const lastDrumRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
@@ -300,12 +300,17 @@ export function MotionScoreApp() {
     }
 
     if (instrumentModeRef.current === "shaker") {
-      if (next.magnitude < 0.88) shakerArmedRef.current = true;
-      if (shakerArmedRef.current && next.magnitude > 1.1 && now - lastShakerRef.current > 170) {
-        shakerArmedRef.current = false;
+      const shakerIntensity = clamp((next.magnitude - 0.42) / 3.8, 0, 1);
+      const interval = 165 - shakerIntensity * 45;
+      if (next.magnitude > 0.42) shakerActiveUntilRef.current = now + 140;
+      if (
+        now < shakerActiveUntilRef.current &&
+        next.magnitude > 0.38 &&
+        now - lastShakerRef.current > interval
+      ) {
         lastShakerRef.current = now;
-        if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(next.magnitude / 4.8, 0.24, 1));
-        setGestureLabel("动作触发 · 沙锤");
+        if (audioRef.current) triggerPercussionVoice(audioRef.current, "shaker", clamp(0.22 + shakerIntensity * 0.72, 0.22, 0.94));
+        setGestureLabel("轻微连续晃动 · 沙锤");
         setPulse(0.34);
         if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = setTimeout(() => setPulse(0), 90);
@@ -595,7 +600,7 @@ export function MotionScoreApp() {
     setInstrumentMode(mode);
     setSampleName(mode === "tonal" ? "Inertia Glass · 24-bit 多采样" : mode === "shaker" ? "Kinetic Shaker · 4 变体" : "Impact Drum · 重鼓");
     setCurrentNoteName(mode === "tonal" ? "—" : mode === "shaker" ? "SHAKER" : "DRUM");
-    setGestureLabel(mode === "tonal" ? "手机触键演奏" : mode === "shaker" ? "等待一次动作" : "等待明显冲击");
+    setGestureLabel(mode === "tonal" ? "手机触键演奏" : mode === "shaker" ? "等待轻微连续晃动" : "等待明显冲击");
     if (audioRef.current) allNotesOff(audioRef.current);
     activeNotesRef.current = [];
     setActiveNotes([]);
@@ -888,7 +893,7 @@ export function MotionScoreApp() {
       <section className="performance-state glass-card">
         <span className="panel-label">PERFORMANCE STATE</span>
         <div><strong>{currentNoteName}</strong><span>{gestureLabel}</span></div>
-        <small>{instrumentMode === "shaker" ? "一个动作 · 一声沙锤" : instrumentMode === "drum" ? "明显冲击触发重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
+        <small>{instrumentMode === "shaker" ? "轻微波动持续 · 沙锤持续" : instrumentMode === "drum" ? "明显冲击触发重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
       </section>
 
       <section className="stage-controls glass-card">
@@ -910,7 +915,7 @@ export function MotionScoreApp() {
               <b>Inertia Glass</b><span>旋律采样乐器</span><small>8 音高 · 24 多力度采样</small>
             </button>
             <button className={instrumentMode === "shaker" ? "active" : ""} onClick={() => selectInstrument("shaker")}>
-              <b>Kinetic Shaker</b><span>动作沙锤</span><small>动作起始 · 一动一声</small>
+              <b>Kinetic Shaker</b><span>动作沙锤</span><small>轻微连续晃动 · 动态门控</small>
             </button>
             <button className={instrumentMode === "drum" ? "active" : ""} onClick={() => selectInstrument("drum")}>
               <b>Impact Drum</b><span>动作重鼓</span><small>明显冲击 · 力度响应</small>
