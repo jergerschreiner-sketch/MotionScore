@@ -636,6 +636,90 @@ button {
   gap: 4px;
 }
 
+.stage-keyboard.percussion > div {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.library-manager {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  width: min(560px, calc(100vw - 32px));
+  padding: 20px;
+  transform: translate(-50%, -50%);
+}
+
+.library-manager header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.library-manager header > div {
+  display: grid;
+  gap: 6px;
+}
+
+.library-manager header strong {
+  font-size: 18px;
+}
+
+.library-manager header button,
+.sample-replace label {
+  padding: 8px 11px;
+  border: 1px solid rgba(241, 239, 231, 0.16);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.library-grid {
+  display: grid;
+  margin-top: 18px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 9px;
+}
+
+.library-grid button {
+  display: grid;
+  min-height: 118px;
+  padding: 15px;
+  border: 1px solid rgba(241, 239, 231, 0.14);
+  border-radius: 13px;
+  background: rgba(241, 239, 231, 0.035);
+  cursor: pointer;
+  gap: 5px;
+  text-align: left;
+}
+
+.library-grid button.active {
+  border-color: var(--acid);
+  background: rgba(215, 255, 69, 0.09);
+}
+
+.library-grid b { font-size: 14px; }
+.library-grid span { color: var(--acid); font-size: 10px; }
+.library-grid small { color: rgba(241, 239, 231, 0.42); font-size: 9px; }
+
+.sample-replace {
+  display: flex;
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(241, 239, 231, 0.1);
+  align-items: center;
+  gap: 7px;
+}
+
+.sample-replace > span {
+  margin-right: auto;
+  color: rgba(241, 239, 231, 0.48);
+  font-size: 9px;
+}
+
+.sample-replace input { display: none; }
+
 .stage-keyboard button {
   min-width: 0;
   padding: 10px 2px;
