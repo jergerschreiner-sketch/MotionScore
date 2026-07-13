@@ -10,11 +10,14 @@ import {
 } from "react";
 import {
   NOTE_DEFINITIONS,
+  STRING_DEFINITIONS,
   allNotesOff,
   createAudioRig,
   isNoteMessage,
+  isStringMessage,
   loadBuiltInBank,
   loadPercussionBank,
+  loadStringBank,
   noteOff,
   noteOn,
   triggerDelayThrow,
@@ -22,12 +25,16 @@ import {
   triggerPercussionVoice,
   triggerReverbThrow,
   updateMotionEffects,
+  startStringVoice,
+  stopStringVoice,
+  updateStringVoice,
   type AudioRig,
   type NoteMessage,
+  type StringMessage,
 } from "./motion-audio";
 
 type Role = "home" | "stage" | "controller";
-type InstrumentMode = "tonal" | "shaker" | "drum";
+type InstrumentMode = "tonal" | "strings" | "shaker" | "drum";
 
 type SensorFrame = {
   type: "sensor";
@@ -46,7 +53,7 @@ type SensorFrame = {
 
 type PerformanceEvent = {
   at: number;
-  data: SensorFrame | NoteMessage;
+  data: SensorFrame | NoteMessage | StringMessage;
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -90,6 +97,14 @@ function peerId(code: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function pitchName(midi: number) {
+  const names = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
+  const rounded = Math.round(midi);
+  const cents = Math.round((midi - rounded) * 100);
+  const name = `${names[((rounded % 12) + 12) % 12]}${Math.floor(rounded / 12) - 1}`;
+  return Math.abs(cents) < 3 ? name : `${name} ${cents > 0 ? "+" : ""}${cents}¢`;
 }
 
 function isSensorFrame(value: unknown): value is SensorFrame {
@@ -234,6 +249,7 @@ export function MotionScoreApp() {
   const lastShakerRef = useRef(0);
   const lastDrumRef = useRef(0);
   const activeNotesRef = useRef<number[]>([]);
+  const activeStringRef = useRef<{ stringIndex: number; midi: number } | null>(null);
   const shakeRef = useRef(0);
   const verticalGestureRef = useRef<{
     direction: -1 | 0 | 1;
@@ -254,7 +270,7 @@ export function MotionScoreApp() {
   const mediaRecordersRef = useRef<MediaRecorder[]>([]);
   const mediaStreamsRef = useRef<MediaStream[]>([]);
 
-  const captureEvent = useCallback((data: SensorFrame | NoteMessage) => {
+  const captureEvent = useCallback((data: SensorFrame | NoteMessage | StringMessage) => {
     if (!recordingRef.current || replayingRef.current) return;
     performanceRef.current.push({ at: performance.now() - recordingStartRef.current, data });
     if (performanceRef.current.length % 12 === 0) setRecordedCount(performanceRef.current.length);
@@ -285,6 +301,16 @@ export function MotionScoreApp() {
         brightness,
         shake: instrumentModeRef.current === "tonal" ? shakeRef.current : 0,
       });
+      if (instrumentModeRef.current === "strings") {
+        updateStringVoice(audioRef.current, { vibrato: shakeRef.current });
+      }
+    }
+
+    if (instrumentModeRef.current === "strings") {
+      if (activeStringRef.current) {
+        setGestureLabel(shakeRef.current > 0.14 ? `晃动揉弦 · CC1 ${Math.round(shakeRef.current * 127)}` : "滑动音高 · 持续运弓");
+      }
+      return;
     }
 
     if (instrumentModeRef.current === "drum") {
@@ -396,11 +422,41 @@ export function MotionScoreApp() {
     if (audioRef.current) noteOff(audioRef.current, note.midi);
   }, [captureEvent]);
 
+  const processString = useCallback((event: StringMessage) => {
+    captureEvent(event);
+    if (instrumentModeRef.current !== "strings") return;
+    if (event.action === "end") {
+      activeStringRef.current = null;
+      setCurrentNoteName("—");
+      setGestureLabel("离弦 · 自然释音");
+      if (audioRef.current) stopStringVoice(audioRef.current);
+      return;
+    }
+
+    const string = STRING_DEFINITIONS[event.stringIndex];
+    if (!string) return;
+    const changedString = activeStringRef.current?.stringIndex !== event.stringIndex;
+    activeStringRef.current = { stringIndex: event.stringIndex, midi: event.midi };
+    setCurrentNoteName(pitchName(event.midi));
+    setGestureLabel(changedString ? `${string.name} 弦 · 起弓` : "连续滑音 · 持续运弓");
+    setPulse(0.28);
+    if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+    pulseTimerRef.current = setTimeout(() => setPulse(0), 90);
+
+    if (!audioRef.current || !audioRef.current.samples.has(`string:${event.stringIndex}`)) {
+      setMessage("已收到弦乐手势，请先点击“启用声音”加载音色");
+      return;
+    }
+    if (event.action === "start" || changedString || !audioRef.current.stringVoice) {
+      startStringVoice(audioRef.current, event.stringIndex, event.midi, event.expression);
+    } else {
+      updateStringVoice(audioRef.current, { midi: event.midi, expression: event.expression });
+    }
+  }, [captureEvent]);
+
   useEffect(() => {
     if (role !== "stage") return;
     let cancelled = false;
-    setConnectionState("waiting");
-    setMessage("");
 
     void import("peerjs").then(({ Peer }) => {
       if (cancelled) return;
@@ -418,6 +474,7 @@ export function MotionScoreApp() {
         connection.on("data", (data) => {
           if (isSensorFrame(data)) processFrame(data);
           else if (isNoteMessage(data)) processNote(data);
+          else if (isStringMessage(data)) processString(data);
         });
         connection.on("close", () => {
           if (audioRef.current) allNotesOff(audioRef.current);
@@ -431,6 +488,7 @@ export function MotionScoreApp() {
 
       peer.on("error", (error) => {
         if (error.type === "unavailable-id") {
+          setConnectionState("waiting");
           setRoomCode(makeRoomCode());
           return;
         }
@@ -446,7 +504,7 @@ export function MotionScoreApp() {
       connectionRef.current = null;
       peerRef.current = null;
     };
-  }, [processFrame, processNote, role, roomCode]);
+  }, [processFrame, processNote, processString, role, roomCode]);
 
   useEffect(() => {
     return () => {
@@ -583,8 +641,9 @@ export function MotionScoreApp() {
       try {
         await loadBuiltInBank(audioRef.current);
         await loadPercussionBank(audioRef.current);
+        await loadStringBank(audioRef.current);
         setBankStatus("ready");
-        setSampleName(instrumentModeRef.current === "tonal" ? "Inertia Glass · 24-bit 多采样" : instrumentModeRef.current === "shaker" ? "Kinetic Shaker · 4 变体" : "Impact Drum · 重鼓");
+        setSampleName(instrumentModeRef.current === "tonal" ? "Inertia Glass · 24-bit 多采样" : instrumentModeRef.current === "strings" ? "Inertia Strings · 四弦持续音色" : instrumentModeRef.current === "shaker" ? "Kinetic Shaker · 原创采样" : "Impact Drum · 重鼓");
         setMessage("音色引擎就绪：触屏定音，动作塑形");
       } catch {
         setBankStatus("error");
@@ -598,11 +657,12 @@ export function MotionScoreApp() {
   const selectInstrument = useCallback((mode: InstrumentMode) => {
     instrumentModeRef.current = mode;
     setInstrumentMode(mode);
-    setSampleName(mode === "tonal" ? "Inertia Glass · 24-bit 多采样" : mode === "shaker" ? "Kinetic Shaker · 4 变体" : "Impact Drum · 重鼓");
-    setCurrentNoteName(mode === "tonal" ? "—" : mode === "shaker" ? "SHAKER" : "DRUM");
-    setGestureLabel(mode === "tonal" ? "手机触键演奏" : mode === "shaker" ? "等待轻微连续晃动" : "等待明显冲击");
+    setSampleName(mode === "tonal" ? "Inertia Glass · 24-bit 多采样" : mode === "strings" ? "Inertia Strings · 四弦持续音色" : mode === "shaker" ? "Kinetic Shaker · 原创采样" : "Impact Drum · 重鼓");
+    setCurrentNoteName(mode === "tonal" || mode === "strings" ? "—" : mode === "shaker" ? "SHAKER" : "DRUM");
+    setGestureLabel(mode === "tonal" ? "手机触键演奏" : mode === "strings" ? "触弦后左右滑动音高" : mode === "shaker" ? "等待轻微连续晃动" : "等待明显冲击");
     if (audioRef.current) allNotesOff(audioRef.current);
     activeNotesRef.current = [];
+    activeStringRef.current = null;
     setActiveNotes([]);
     if (connectionRef.current?.open) connectionRef.current.send({ type: "instrument", mode });
   }, []);
@@ -630,6 +690,19 @@ export function MotionScoreApp() {
       processNote({ type: "note", action: "off", midi, name, t: Date.now() });
     }, 900);
   }, [enableAudio, processNote]);
+
+  const previewStringStart = useCallback(async () => {
+    await enableAudio();
+    if (!audioRef.current) return;
+    startStringVoice(audioRef.current, 1, 65.5, 0.68);
+    setCurrentNoteName(pitchName(65.5));
+    setGestureLabel("电脑试听 · 持续弦乐");
+  }, [enableAudio]);
+
+  const previewStringStop = useCallback(() => {
+    if (audioRef.current) stopStringVoice(audioRef.current);
+    setCurrentNoteName("—");
+  }, []);
 
   const simulate = useCallback(
     (kind: "hit" | "tilt-left" | "tilt-right" | "shake") => {
@@ -717,7 +790,8 @@ export function MotionScoreApp() {
     for (const event of events) {
       const timer = window.setTimeout(() => {
         if (isSensorFrame(event.data)) processFrame(event.data);
-        else processNote(event.data);
+        else if (isNoteMessage(event.data)) processNote(event.data);
+        else processString(event.data);
       }, event.at);
       replayTimersRef.current.push(timer);
     }
@@ -728,7 +802,7 @@ export function MotionScoreApp() {
       if (audioRef.current) allNotesOff(audioRef.current);
       setMessage("回放完成");
     }, end + 600));
-  }, [enableAudio, isReplaying, processFrame, processNote]);
+  }, [enableAudio, isReplaying, processFrame, processNote, processString]);
 
   const exportAudio = useCallback(() => {
     if (!audioRecording) return;
@@ -771,7 +845,11 @@ export function MotionScoreApp() {
         </section>
 
         <section className="role-grid" aria-label="选择设备角色">
-          <button className="role-card stage-card" onClick={() => setRole("stage")}>
+          <button className="role-card stage-card" onClick={() => {
+            setConnectionState("waiting");
+            setMessage("");
+            setRole("stage");
+          }}>
             <span className="role-index">01</span>
             <span className="role-title">电脑舞台端</span>
             <span className="role-description">接收动作 · 播放声音 · 生成视觉谱</span>
@@ -893,7 +971,7 @@ export function MotionScoreApp() {
       <section className="performance-state glass-card">
         <span className="panel-label">PERFORMANCE STATE</span>
         <div><strong>{currentNoteName}</strong><span>{gestureLabel}</span></div>
-        <small>{instrumentMode === "shaker" ? "轻微波动持续 · 沙锤持续" : instrumentMode === "drum" ? "明显冲击触发重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
+        <small>{instrumentMode === "strings" ? "无品滑音 · 晃动揉弦" : instrumentMode === "shaker" ? "轻微波动持续 · 沙锤持续" : instrumentMode === "drum" ? "明显冲击触发重鼓" : activeNotes.length ? `${activeNotes.length} 个音正在保持` : "手机触键选择音高"}</small>
       </section>
 
       <section className="stage-controls glass-card">
@@ -913,6 +991,9 @@ export function MotionScoreApp() {
           <div className="library-grid">
             <button className={instrumentMode === "tonal" ? "active" : ""} onClick={() => selectInstrument("tonal")}>
               <b>Inertia Glass</b><span>旋律采样乐器</span><small>8 音高 · 24 多力度采样</small>
+            </button>
+            <button className={instrumentMode === "strings" ? "active" : ""} onClick={() => selectInstrument("strings")}>
+              <b>Inertia Strings</b><span>无品滑奏弦乐</span><small>四根弦 · 连续滑音 · 晃动揉弦</small>
             </button>
             <button className={instrumentMode === "shaker" ? "active" : ""} onClick={() => selectInstrument("shaker")}>
               <b>Kinetic Shaker</b><span>动作沙锤</span><small>轻微连续晃动 · 动态门控</small>
@@ -945,13 +1026,14 @@ export function MotionScoreApp() {
       </section>
 
       <section className={`stage-keyboard glass-card ${instrumentMode}`}>
-        <span className="panel-label">{instrumentMode === "tonal" ? "电脑试听音阶" : instrumentMode === "shaker" ? "电脑试听沙锤" : "电脑试听重鼓"}</span>
+        <span className="panel-label">{instrumentMode === "tonal" ? "电脑试听音阶" : instrumentMode === "strings" ? "电脑按住试听弦乐" : instrumentMode === "shaker" ? "电脑试听沙锤" : "电脑试听重鼓"}</span>
         <div>
           {instrumentMode === "tonal" ? NOTE_DEFINITIONS.map((note) => (
             <button key={note.midi} onClick={() => void previewNote(note.midi, note.name)}>
               {note.name}
             </button>
-          )) : instrumentMode === "shaker" ?
+          )) : instrumentMode === "strings" ?
+            <button onPointerDown={() => void previewStringStart()} onPointerUp={previewStringStop} onPointerCancel={previewStringStop} onPointerLeave={previewStringStop}>按住试听 · F4 + 50¢</button> : instrumentMode === "shaker" ?
             <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "shaker", 0.55)}>沙锤</button> :
             <button onClick={() => audioRef.current && triggerPercussionVoice(audioRef.current, "heavy-drum", 0.9)}>重鼓</button>}
         </div>

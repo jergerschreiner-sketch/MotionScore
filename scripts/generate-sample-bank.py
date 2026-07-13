@@ -20,11 +20,11 @@ NOTES = {
     "c4": 60,
     "d4": 62,
     "e4": 64,
+    "f4": 65,
     "g4": 67,
     "a4": 69,
+    "b4": 71,
     "c5": 72,
-    "d5": 74,
-    "e5": 76,
 }
 
 LAYERS = {
@@ -122,7 +122,7 @@ def main() -> None:
     (OUTPUT / "README.txt").write_text(
         "MotionScore Inertia Glass multisample bank\n"
         "Original procedural sound design; 48 kHz / 24-bit / stereo.\n"
-        "Notes: C4 D4 E4 G4 A4 C5 D5 E5. Layers: soft medium hard.\n",
+        "Notes: C4 D4 E4 F4 G4 A4 B4 C5. Layers: soft medium hard.\n",
         encoding="utf-8",
     )
 

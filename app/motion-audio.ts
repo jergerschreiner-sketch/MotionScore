@@ -2,11 +2,11 @@ export const NOTE_DEFINITIONS = [
   { midi: 60, name: "C4", file: "c4", color: 42 },
   { midi: 62, name: "D4", file: "d4", color: 62 },
   { midi: 64, name: "E4", file: "e4", color: 84 },
-  { midi: 67, name: "G4", file: "g4", color: 112 },
-  { midi: 69, name: "A4", file: "a4", color: 142 },
-  { midi: 72, name: "C5", file: "c5", color: 176 },
-  { midi: 74, name: "D5", file: "d5", color: 208 },
-  { midi: 76, name: "E5", file: "e5", color: 244 },
+  { midi: 65, name: "F4", file: "f4", color: 104 },
+  { midi: 67, name: "G4", file: "g4", color: 132 },
+  { midi: 69, name: "A4", file: "a4", color: 164 },
+  { midi: 71, name: "B4", file: "b4", color: 202 },
+  { midi: 72, name: "C5", file: "c5", color: 238 },
 ] as const;
 
 export type NoteMessage = {
@@ -18,12 +18,37 @@ export type NoteMessage = {
   t: number;
 };
 
+export const STRING_DEFINITIONS = [
+  { midi: 55, name: "G3", file: "g3" },
+  { midi: 62, name: "D4", file: "d4" },
+  { midi: 69, name: "A4", file: "a4" },
+  { midi: 76, name: "E5", file: "e5" },
+] as const;
+
+export type StringMessage = {
+  type: "string";
+  action: "start" | "move" | "end";
+  stringIndex: number;
+  midi: number;
+  expression: number;
+  t: number;
+};
+
 type SampleLayer = "soft" | "medium" | "hard";
 
 type Voice = {
   source: AudioBufferSourceNode;
   gain: GainNode;
   midi: number;
+};
+
+type StringVoice = {
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+  vibratoLfo: OscillatorNode;
+  vibratoDepth: GainNode;
+  stringIndex: number;
+  baseMidi: number;
 };
 
 export type AudioRig = {
@@ -46,6 +71,7 @@ export type AudioRig = {
   capture: MediaStreamAudioDestinationNode;
   samples: Map<string, AudioBuffer>;
   voices: Map<number, Voice>;
+  stringVoice: StringVoice | null;
   customHit: AudioBuffer | null;
 };
 
@@ -141,6 +167,7 @@ export function createAudioRig(): AudioRig {
     capture,
     samples: new Map(),
     voices: new Map(),
+    stringVoice: null,
     customHit: null,
   };
 }
@@ -171,6 +198,80 @@ export async function loadPercussionBank(rig: AudioRig) {
       rig.samples.set(`percussion:${name}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
     }),
   );
+}
+
+export async function loadStringBank(rig: AudioRig) {
+  await Promise.all(
+    STRING_DEFINITIONS.map(async (string, index) => {
+      const response = await fetch(`/audio/inertia-strings/${string.file}.wav`);
+      if (!response.ok) throw new Error(`Unable to load ${string.name} string`);
+      rig.samples.set(`string:${index}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
+    }),
+  );
+}
+
+export function stopStringVoice(rig: AudioRig, release = 0.18) {
+  const voice = rig.stringVoice;
+  if (!voice) return;
+  rig.stringVoice = null;
+  const now = rig.context.currentTime;
+  voice.gain.gain.cancelScheduledValues(now);
+  voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), now);
+  voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
+  voice.source.stop(now + release + 0.04);
+  voice.vibratoLfo.stop(now + release + 0.04);
+}
+
+export function startStringVoice(
+  rig: AudioRig,
+  stringIndex: number,
+  midi: number,
+  expression = 0.62,
+) {
+  stopStringVoice(rig, 0.075);
+  const definition = STRING_DEFINITIONS[stringIndex];
+  const buffer = rig.samples.get(`string:${stringIndex}`);
+  if (!definition || !buffer) return false;
+
+  const now = rig.context.currentTime;
+  const source = rig.context.createBufferSource();
+  const gain = rig.context.createGain();
+  const vibratoLfo = rig.context.createOscillator();
+  const vibratoDepth = rig.context.createGain();
+  source.buffer = buffer;
+  source.loop = true;
+  source.playbackRate.value = Math.pow(2, (midi - definition.midi) / 12);
+  vibratoLfo.type = "sine";
+  vibratoLfo.frequency.value = 5.1;
+  vibratoDepth.gain.value = 0;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(clamp(0.24 + expression * 0.52, 0.2, 0.78), now + 0.075);
+  vibratoLfo.connect(vibratoDepth).connect(source.detune);
+  source.connect(gain).connect(rig.input);
+  source.start(now);
+  vibratoLfo.start(now);
+  rig.stringVoice = { source, gain, vibratoLfo, vibratoDepth, stringIndex, baseMidi: definition.midi };
+  return true;
+}
+
+export function updateStringVoice(
+  rig: AudioRig,
+  values: { midi?: number; expression?: number; vibrato?: number },
+) {
+  const voice = rig.stringVoice;
+  if (!voice) return;
+  const now = rig.context.currentTime;
+  if (typeof values.midi === "number") {
+    voice.source.playbackRate.setTargetAtTime(Math.pow(2, (values.midi - voice.baseMidi) / 12), now, 0.018);
+  }
+  if (typeof values.expression === "number") {
+    voice.gain.gain.setTargetAtTime(clamp(0.22 + values.expression * 0.55, 0.18, 0.8), now, 0.045);
+  }
+  if (typeof values.vibrato === "number") {
+    const amount = clamp(values.vibrato, 0, 1);
+    voice.vibratoDepth.gain.setTargetAtTime(amount * 52, now, 0.055);
+    voice.vibratoLfo.frequency.setTargetAtTime(4.2 + amount * 2.6, now, 0.08);
+  }
 }
 
 export function triggerPercussionVoice(
@@ -232,6 +333,7 @@ export function noteOff(rig: AudioRig, midi: number, release = 0.22) {
 
 export function allNotesOff(rig: AudioRig) {
   for (const midi of Array.from(rig.voices.keys())) noteOff(rig, midi, 0.12);
+  stopStringVoice(rig, 0.12);
 }
 
 export function updateMotionEffects(
@@ -305,4 +407,13 @@ export function isNoteMessage(value: unknown): value is NoteMessage {
   if (!value || typeof value !== "object") return false;
   const candidate = value as { type?: unknown; action?: unknown };
   return candidate.type === "note" && ["on", "off", "allOff"].includes(String(candidate.action));
+}
+
+export function isStringMessage(value: unknown): value is StringMessage {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { type?: unknown; action?: unknown; stringIndex?: unknown; midi?: unknown };
+  return candidate.type === "string" &&
+    ["start", "move", "end"].includes(String(candidate.action)) &&
+    typeof candidate.stringIndex === "number" &&
+    typeof candidate.midi === "number";
 }
