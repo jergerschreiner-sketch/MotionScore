@@ -26,7 +26,7 @@
   </style>
 </head>
 <body>
-  <header><a href="/">← EXIT</a><span>MOTIONSCORE / CONTROLLER</span><i id="status-dot" class="dot"></i></header>
+  <header><a href="./">← EXIT</a><span>MOTIONSCORE / CONTROLLER</span><i id="status-dot" class="dot"></i></header>
   <main>
     <div id="script-warning" class="warning">控制脚本没有加载，请刷新页面。</div>
     <section class="top">
@@ -94,7 +94,7 @@
     <div class="readout"><span>X <em id="x">0.0</em></span><span>Y <em id="y">0.0</em></span><span>Z <em id="z">0.0</em></span><span>TILT <em id="tilt">0°</em></span></div>
   </main>
   <script>setTimeout(function(){if(!window.__MOTIONSCORE_READY__)document.getElementById('script-warning').style.display='block'},1800)</script>
-  <script src="/local-peerjs.js"></script>
+  <script src="./local-peerjs.js"></script>
   <script>
   (function(){
     window.__MOTIONSCORE_READY__=true;

@@ -275,9 +275,9 @@ function MotionCanvas({
     if (!context) return;
     let animation = 0;
     const sculptureSources: Partial<Record<InstrumentMode, string>> = {
-      tonal: "/visual-reference/inertia-glass-handpan-concept-v2-smoked.png",
-      strings: "/visual-reference/inertia-pluck-warm-concept-v1.png",
-      drum: "/visual-reference/impact-drum-warm-concept-v3.png",
+      tonal: "./visual-reference/inertia-glass-handpan-concept-v2-smoked.png",
+      strings: "./visual-reference/inertia-pluck-warm-concept-v1.png",
+      drum: "./visual-reference/impact-drum-warm-concept-v3.png",
     };
     const sculptureImages: Partial<Record<InstrumentMode, HTMLImageElement>> = {};
     for (const [instrument, source] of Object.entries(sculptureSources)) {
@@ -1891,7 +1891,7 @@ export function MotionScoreApp() {
           </button>
           <a
             className="role-card controller-card"
-            href="/phone.html"
+            href="./phone.html"
           >
             <span className="role-index">02</span>
             <span className="role-title">手机控制端</span>

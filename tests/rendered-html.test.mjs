@@ -33,7 +33,7 @@ test("server-renders the MotionScore role selector", async () => {
   assert.match(html, /class="home-shell"/);
   assert.match(html, /电脑舞台端/);
   assert.match(html, /手机控制端/);
-  assert.match(html, /href="\/phone\.html"/);
+  assert.match(html, /href="(?:\.\/|\/)phone\.html"/);
   assert.match(html, /无线数字乐器与动作视觉乐谱系统/);
   assert.doesNotMatch(html, /截止日期|2026\.08\.10/);
 });

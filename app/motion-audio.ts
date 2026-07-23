@@ -179,7 +179,7 @@ export async function loadBuiltInBank(rig: AudioRig) {
   await Promise.all(
     NOTE_DEFINITIONS.flatMap((note) =>
       layers.map(async (layer) => {
-        const response = await fetch(`/audio/inertia-glass/${note.file}_${layer}.wav`);
+        const response = await fetch(`./audio/inertia-glass/${note.file}_${layer}.wav`);
         if (!response.ok) throw new Error(`Unable to load ${note.name} ${layer}`);
         const buffer = await rig.context.decodeAudioData(await response.arrayBuffer());
         rig.samples.set(sampleKey(note.midi, layer), buffer);
@@ -189,7 +189,7 @@ export async function loadBuiltInBank(rig: AudioRig) {
 }
 
 export async function loadPercussionBank(rig: AudioRig) {
-  const response = await fetch("/audio/kinetic-percussion/heavy-drum.wav");
+  const response = await fetch("./audio/kinetic-percussion/heavy-drum.wav");
   if (!response.ok) throw new Error("Unable to load heavy-drum");
   rig.samples.set("percussion:heavy-drum", await rig.context.decodeAudioData(await response.arrayBuffer()));
 }
@@ -197,7 +197,7 @@ export async function loadPercussionBank(rig: AudioRig) {
 export async function loadStringBank(rig: AudioRig) {
   await Promise.all(
     STRING_DEFINITIONS.map(async (string, index) => {
-      const response = await fetch(`/audio/inertia-strings/${string.file}.wav`);
+      const response = await fetch(`./audio/inertia-strings/${string.file}.wav`);
       if (!response.ok) throw new Error(`Unable to load ${string.name} string`);
       rig.samples.set(`string:${index}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
     }),
