@@ -43,3 +43,16 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# Local release archives
+/backups/
+
+# Retired local audio references; keep on disk but never ship with the product.
+/shaker.mp3
+/public/audio/kinetic-percussion/shaker.mp3
+
+# Keep only the three visual concepts used by the current runtime.
+/public/visual-reference/*
+!/public/visual-reference/inertia-glass-handpan-concept-v2-smoked.png
+!/public/visual-reference/inertia-pluck-warm-concept-v1.png
+!/public/visual-reference/impact-drum-warm-concept-v3.png

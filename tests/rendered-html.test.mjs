@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -28,60 +23,43 @@ async function render() {
   );
 }
 
-test("server-renders the starter loading skeleton", async () => {
+test("server-renders the MotionScore role selector", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Codex is working/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(html, /Codex is building the first version/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
+  assert.match(html, /<title>惯性谱 MotionScore<\/title>/i);
+  assert.match(html, /class="home-shell"/);
+  assert.match(html, /电脑舞台端/);
+  assert.match(html, /手机控制端/);
+  assert.match(html, /href="\/phone\.html"/);
+  assert.match(html, /无线数字乐器与动作视觉乐谱系统/);
+  assert.doesNotMatch(html, /截止日期|2026\.08\.10/);
 });
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+test("keeps the frozen instrument and performance-mode contract", async () => {
+  const [app, css, layout] = await Promise.all([
+    readFile(new URL("../app/motion-score-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
+    access(new URL("../public/visual-reference/inertia-glass-handpan-concept-v2-smoked.png", import.meta.url)),
+    access(new URL("../public/visual-reference/inertia-pluck-warm-concept-v1.png", import.meta.url)),
+    access(new URL("../public/visual-reference/impact-drum-warm-concept-v3.png", import.meta.url)),
   ]);
 
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
-
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
-  );
-
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
-
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
-  );
+  assert.match(layout, /title:\s*"惯性谱 MotionScore"/);
+  assert.match(app, /className="performance-mode-button"/);
+  assert.match(app, /setPerformanceMode\(true\)/);
+  assert.match(app, /performance-only/);
+  assert.match(app, /EXIT \/ ESC/);
+  assert.match(app, /inertia-glass-handpan-concept-v2-smoked\.png/);
+  assert.match(app, /inertia-pluck-warm-concept-v1\.png/);
+  assert.match(app, /impact-drum-warm-concept-v3\.png/);
+  assert.match(app, /<b>Inertia Glass<\/b><small>/);
+  assert.match(app, /<b>Inertia Pluck<\/b><small>/);
+  assert.match(app, /<b>Impact Drum<\/b><small>/);
+  assert.doesNotMatch(app, /<span>采样音色<\/span>|<span>弹拨滑音<\/span>|<span>冲量重鼓<\/span>/);
+  assert.match(css, /\.stage-shell\.performance-only > :not\(\.motion-canvas\):not\(\.performance-exit\)/);
+  assert.match(css, /\.stage-shell\.performance-only \.performance-exit/);
 });

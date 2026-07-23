@@ -45,8 +45,6 @@ type Voice = {
 type StringVoice = {
   source: AudioBufferSourceNode;
   gain: GainNode;
-  vibratoLfo: OscillatorNode;
-  vibratoDepth: GainNode;
   stringIndex: number;
   baseMidi: number;
 };
@@ -191,13 +189,9 @@ export async function loadBuiltInBank(rig: AudioRig) {
 }
 
 export async function loadPercussionBank(rig: AudioRig) {
-  await Promise.all(
-    (["shaker", "heavy-drum"] as const).map(async (name) => {
-      const response = await fetch(`/audio/kinetic-percussion/${name}.wav`);
-      if (!response.ok) throw new Error(`Unable to load ${name}`);
-      rig.samples.set(`percussion:${name}`, await rig.context.decodeAudioData(await response.arrayBuffer()));
-    }),
-  );
+  const response = await fetch("/audio/kinetic-percussion/heavy-drum.wav");
+  if (!response.ok) throw new Error("Unable to load heavy-drum");
+  rig.samples.set("percussion:heavy-drum", await rig.context.decodeAudioData(await response.arrayBuffer()));
 }
 
 export async function loadStringBank(rig: AudioRig) {
@@ -219,7 +213,6 @@ export function stopStringVoice(rig: AudioRig, release = 0.18) {
   voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), now);
   voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
   voice.source.stop(now + release + 0.04);
-  voice.vibratoLfo.stop(now + release + 0.04);
 }
 
 export function startStringVoice(
@@ -236,27 +229,24 @@ export function startStringVoice(
   const now = rig.context.currentTime;
   const source = rig.context.createBufferSource();
   const gain = rig.context.createGain();
-  const vibratoLfo = rig.context.createOscillator();
-  const vibratoDepth = rig.context.createGain();
   source.buffer = buffer;
-  source.loop = true;
   source.playbackRate.value = Math.pow(2, (midi - definition.midi) / 12);
-  vibratoLfo.type = "sine";
-  vibratoLfo.frequency.value = 5.1;
-  vibratoDepth.gain.value = 0;
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(clamp(0.24 + expression * 0.52, 0.2, 0.78), now + 0.075);
-  vibratoLfo.connect(vibratoDepth).connect(source.detune);
+  gain.gain.exponentialRampToValueAtTime(clamp(0.36 + expression * 0.56, 0.28, 0.9), now + 0.004);
+  gain.gain.setTargetAtTime(clamp(0.22 + expression * 0.36, 0.18, 0.62), now + 0.055, 1.35);
   source.connect(gain).connect(rig.input);
   source.start(now);
-  vibratoLfo.start(now);
-  rig.stringVoice = { source, gain, vibratoLfo, vibratoDepth, stringIndex, baseMidi: definition.midi };
+  const voice: StringVoice = { source, gain, stringIndex, baseMidi: definition.midi };
+  rig.stringVoice = voice;
+  source.addEventListener("ended", () => {
+    if (rig.stringVoice === voice) rig.stringVoice = null;
+  });
   return true;
 }
 
 export function updateStringVoice(
   rig: AudioRig,
-  values: { midi?: number; expression?: number; vibrato?: number },
+  values: { midi?: number; expression?: number },
 ) {
   const voice = rig.stringVoice;
   if (!voice) return;
@@ -265,18 +255,13 @@ export function updateStringVoice(
     voice.source.playbackRate.setTargetAtTime(Math.pow(2, (values.midi - voice.baseMidi) / 12), now, 0.018);
   }
   if (typeof values.expression === "number") {
-    voice.gain.gain.setTargetAtTime(clamp(0.22 + values.expression * 0.55, 0.18, 0.8), now, 0.045);
-  }
-  if (typeof values.vibrato === "number") {
-    const amount = clamp(values.vibrato, 0, 1);
-    voice.vibratoDepth.gain.setTargetAtTime(amount * 52, now, 0.055);
-    voice.vibratoLfo.frequency.setTargetAtTime(4.2 + amount * 2.6, now, 0.08);
+    voice.gain.gain.setTargetAtTime(clamp(0.2 + values.expression * 0.44, 0.18, 0.68), now, 0.045);
   }
 }
 
 export function triggerPercussionVoice(
   rig: AudioRig,
-  kind: "shaker" | "heavy-drum",
+  kind: "heavy-drum",
   strength: number,
 ) {
   const buffer = rig.samples.get(`percussion:${kind}`);
@@ -285,10 +270,18 @@ export function triggerPercussionVoice(
   const source = rig.context.createBufferSource();
   const gain = rig.context.createGain();
   source.buffer = buffer;
-  source.playbackRate.value = kind === "shaker" ? 0.96 + Math.random() * 0.09 : 0.94 + Math.random() * 0.07;
-  gain.gain.value = kind === "shaker" ? clamp(0.18 + strength * 0.48, 0.16, 0.68) : clamp(0.58 + strength * 0.42, 0.55, 1);
+  source.playbackRate.value = 0.94 + Math.random() * 0.07;
   source.connect(gain).connect(rig.input);
+
+  const level = clamp(0.58 + strength * 0.42, 0.55, 1);
+  const playbackDuration = buffer.duration / source.playbackRate.value;
+  const fadeDuration = clamp(playbackDuration * 0.38, 0.28, 0.48);
+  const fadeStart = now + Math.max(0.12, playbackDuration - fadeDuration);
+  gain.gain.setValueAtTime(level, now);
+  gain.gain.setValueAtTime(level, fadeStart);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + playbackDuration);
   source.start(now);
+  source.stop(now + playbackDuration + 0.02);
   return true;
 }
 
