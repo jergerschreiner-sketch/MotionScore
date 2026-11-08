@@ -31,7 +31,7 @@
     <div id="script-warning" class="warning">控制脚本没有加载，请刷新页面。</div>
     <section class="top">
       <div id="motion" class="motion"><div><strong id="magnitude">0.0</strong><small>IMPULSE</small></div></div>
-      <div class="pair"><input id="code" maxlength="5" placeholder="DEVICE CODE" autocomplete="off"/><div class="pair-row"><button id="connect" class="connect">连接舞台</button><button id="sensor" class="sensor">启用传感</button></div></div>
+      <div class="pair"><input id="code" aria-label="五位舞台配对码" maxlength="5" placeholder="DEVICE CODE" autocomplete="off"/><div class="pair-row"><button id="connect" class="connect">连接舞台</button><button id="sensor" class="sensor">启用传感</button></div></div>
     </section>
     <p id="message">STAGE OFFLINE / NOTE INPUT AVAILABLE</p>
     <section class="mode-row"><span>NOTE MODE</span><button class="mode active" data-mode="hold">门控</button><button class="mode" data-mode="latch">锁存</button><button id="stop" class="stop">ALL OFF</button></section>
@@ -100,10 +100,39 @@
     window.__MOTIONSCORE_READY__=true;
     var peer=null,connection=null,orientation={alpha:0,beta:0,gamma:0},lastSent=0,energy=0,mode="hold",instrument="tonal",activeChord=null,activeStringPointer=null,stringGesture=null,midiOctave=4,midiMappings={pan:{enabled:false,controller:10},modulation:{enabled:true,controller:1},expression:{enabled:false,controller:11}};
     var code=document.getElementById("code"),connectButton=document.getElementById("connect"),sensorButton=document.getElementById("sensor"),message=document.getElementById("message"),dot=document.getElementById("status-dot"),motion=document.getElementById("motion"),magnitude=document.getElementById("magnitude");
-    function msg(text){message.textContent=text}function send(data){if(connection&&connection.open){connection.send(data);return true}msg("STAGE OFFLINE");return false}function peerId(v){return "motionscore-"+v.trim().toLowerCase()}function velocity(){return Math.min(1,Math.max(.32,.52+energy/18))}
+    function msg(text){message.textContent=text}function send(data){if(connection&&connection.open){connection.send(data);return true}if(!linkNotice)msg("STAGE OFFLINE");return false}function peerId(v){return "motionscore-"+v.trim().toLowerCase()}function velocity(){return Math.min(1,Math.max(.32,.52+energy/18))}
     code.addEventListener("input",function(){code.value=code.value.toUpperCase().replace(/[^A-Z0-9]/g,"")});
     function setInstrument(value){endString(false);instrument=value;document.body.classList.toggle("percussion-mode",value==="drum");document.body.classList.toggle("string-mode",value==="strings");document.body.classList.toggle("midi-mode",value==="midi");clearNotes();if(value==="midi"){msg("MIDI / 12-TONE + CC MATRIX")}else if(value==="strings"){msg("PLUCK / SNAP · DEAD ZONE · GLIDE")}else if(value==="drum"){document.getElementById("motion-title").textContent="Impact Drum";document.getElementById("motion-copy").textContent="IMPULSE / VELOCITY";document.getElementById("motion-legend").innerHTML="<b>IMPACT</b>冲量 / 力度";msg("IMPACT / ARMED")}else msg("GLASS / NOTE INPUT")}
-    connectButton.addEventListener("click",function(){var room=code.value.trim();if(room.length<4){msg("DEVICE CODE REQUIRED");return}if(typeof Peer==="undefined"){msg("LINK MODULE ERROR / RELOAD");return}connectButton.disabled=true;connectButton.textContent="连接中";if(peer)peer.destroy();peer=new Peer({debug:1});peer.on("open",function(){connection=peer.connect(peerId(room),{reliable:false,serialization:"json"});connection.on("open",function(){dot.classList.add("connected");connectButton.textContent="已连接";msg("LINK ACTIVE / SYNCING INSTRUMENT")});connection.on("data",function(data){if(data&&data.type==="instrument")setInstrument(data.mode);else if(data&&data.type==="midi-config")applyMidiConfig(data.mappings)});connection.on("close",function(){dot.classList.remove("connected");connectButton.disabled=false;connectButton.textContent="重新连接";clearNotes();msg("LINK LOST")});connection.on("error",function(){connectButton.disabled=false;connectButton.textContent="重新连接";msg("LINK ERROR / CHECK CODE")})});peer.on("error",function(){connectButton.disabled=false;connectButton.textContent="重新连接";msg("STAGE NOT AVAILABLE")})});
+    var linkNotice="",connectTimer=null;
+    function clearConnectTimer(){if(connectTimer!==null){clearTimeout(connectTimer);connectTimer=null}}
+    connectButton.addEventListener("click",function(){
+      var room=code.value.trim().toUpperCase();
+      if(!/^[A-Z0-9]{5}$/.test(room)){msg("请输入五位配对码");return}
+      if(typeof Peer==="undefined"){msg("连接模块加载失败，请刷新页面");return}
+      clearConnectTimer();linkNotice="";connection=null;
+      connectButton.disabled=true;connectButton.textContent="连接中";msg("正在连接舞台…");
+      if(peer)peer.destroy();
+      var nextPeer=new Peer({debug:1});peer=nextPeer;
+      function failed(text){if(peer!==nextPeer)return;clearConnectTimer();connection=null;peer=null;nextPeer.destroy();dot.classList.remove("connected");connectButton.disabled=false;connectButton.textContent="重新连接";msg(text)}
+      connectTimer=setTimeout(function(){failed("连接超时，请确认舞台仍在打开，或换网络后重试")},15000);
+      nextPeer.on("open",function(){
+        if(peer!==nextPeer)return;
+        var nextConnection=nextPeer.connect(peerId(room),{reliable:false,serialization:"json"});connection=nextConnection;
+        nextConnection.on("open",function(){if(connection!==nextConnection)return;clearConnectTimer();dot.classList.add("connected");connectButton.textContent="已连接";msg("已连接，请点“启用传感”后开始体验")});
+        nextConnection.on("data",function(data){
+          if(connection!==nextConnection)return;
+          if(data&&(data.type==="stage-busy"||data.type==="session-ended")){
+            linkNotice=data.type==="stage-busy"?"舞台使用中，请等上一位结束后点“重新连接”":"本次体验已结束，请把舞台留给下一位";
+            nextConnection.close();msg(linkNotice);return;
+          }
+          if(data&&data.type==="instrument"){setInstrument(data.mode);if(!sensorButton.disabled)msg("已连接，请点“启用传感”后开始体验")}
+          else if(data&&data.type==="midi-config")applyMidiConfig(data.mappings);
+        });
+        nextConnection.on("close",function(){if(connection!==nextConnection)return;clearConnectTimer();connection=null;dot.classList.remove("connected");connectButton.disabled=false;connectButton.textContent="重新连接";clearNotes();endString(false);msg(linkNotice||"连接已断开，请重新连接")});
+        nextConnection.on("error",function(){failed("连接失败，请检查配对码或换网络后重试")});
+      });
+      nextPeer.on("error",function(){failed("暂时无法连接舞台，请确认配对码或换网络后重试")});
+    });
     document.querySelectorAll(".mode").forEach(function(button){button.addEventListener("click",function(){mode=button.dataset.mode;document.querySelectorAll(".mode").forEach(function(item){item.classList.toggle("active",item===button)});clearNotes();send({type:"note",action:"allOff",t:Date.now()})})});
     function noteData(button,action){return{type:"note",action:action,midi:Number(button.dataset.midi),name:button.dataset.name,velocity:velocity(),t:Date.now()}}
     function noteOn(button){if(activeChord){send({type:"note",action:"allOff",t:Date.now()});clearNotes();activeChord=null}if(mode==="latch"&&button.classList.contains("active")){button.classList.remove("active");send(noteData(button,"off"));return}button.classList.add("active");if(send(noteData(button,"on")))msg(button.dataset.name+" / NOTE ON")}
@@ -132,6 +161,11 @@
     stringBoard.addEventListener("pointerup",function(event){if(event.pointerId===activeStringPointer)endString(true)});stringBoard.addEventListener("pointercancel",function(){endString(true)});
     document.getElementById("stop").addEventListener("click",function(){clearNotes();endString(false);send({type:"note",action:"allOff",t:Date.now()});msg("ALL NOTES OFF")});
     sensorButton.addEventListener("click",async function(){if(!("DeviceMotionEvent" in window)){msg("MOTION SENSOR UNSUPPORTED");return}try{var mp=typeof DeviceMotionEvent.requestPermission==="function"?await DeviceMotionEvent.requestPermission():"granted";var op=typeof DeviceOrientationEvent.requestPermission==="function"?await DeviceOrientationEvent.requestPermission():"granted";if(mp!=="granted"||op!=="granted"){msg("MOTION ACCESS DENIED");return}window.addEventListener("deviceorientation",function(e){orientation={alpha:e.alpha||0,beta:e.beta||0,gamma:e.gamma||0}});window.addEventListener("devicemotion",function(e){var now=performance.now();if(now-lastSent<28)return;lastSent=now;var a=e.acceleration||e.accelerationIncludingGravity||{},r=e.rotationRate||{},ax=a.x||0,ay=a.y||0,az=a.z||0;energy=Math.sqrt(ax*ax+ay*ay+az*az);var frame={type:"sensor",ax:ax,ay:ay,az:az,alpha:orientation.alpha,beta:orientation.beta,gamma:orientation.gamma,rx:r.alpha||0,ry:r.beta||0,rz:r.gamma||0,magnitude:energy,t:Date.now()};magnitude.textContent=energy.toFixed(1);document.getElementById("x").textContent=ax.toFixed(1);document.getElementById("y").textContent=ay.toFixed(1);document.getElementById("z").textContent=az.toFixed(1);document.getElementById("tilt").textContent=orientation.gamma.toFixed(0)+"°";send(frame)});motion.classList.add("active");sensorButton.disabled=true;sensorButton.textContent="传感已启用";msg(instrument==="midi"?"MIDI MOTION / ENABLED CC ONLY":instrument==="strings"?"PAN + FILTER / PITCH BY TOUCH":instrument==="drum"?"IMPACT / ARMED":"PAN · FILTER · VIBRATO · FX THROW")}catch(error){msg("MOTION ACCESS ERROR / SAFARI SETTINGS")}});
+    var roomFromLink=new URLSearchParams(window.location.search).get("room");
+    if(roomFromLink&&/^[A-Z0-9]{5}$/.test(roomFromLink.toUpperCase())){
+      code.value=roomFromLink.toUpperCase();
+      connectButton.click();
+    }
   })();
   </script>
 </body>

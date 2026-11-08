@@ -563,6 +563,58 @@ button {
   font-size: 10px;
 }
 
+.pair-qr-button {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+  cursor: zoom-in;
+}
+
+.pair-qr-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pair-card p + p { margin-top: 6px; }
+
+.pair-release, .pair-dialog-close {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(241, 239, 231, .25);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--paper, #f1efe7);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pair-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(90vw, 560px);
+  max-height: 92dvh;
+  padding: 24px;
+  border: 1px solid rgba(241, 239, 231, .25);
+  border-radius: 18px;
+  background: #10110f;
+  color: #f1efe7;
+}
+
+.pair-dialog::backdrop { background: rgba(0, 0, 0, .82); }
+.pair-dialog-content { text-align: center; }
+.pair-dialog-close { display: block; margin: 0 0 12px auto; }
+.pair-dialog h2 { font-size: 24px; }
+.pair-dialog img { display: block; width: 100%; height: auto; background: white; border-radius: 8px; }
+.pair-dialog p { font-size: 15px; line-height: 1.6; color: #c5c4bc; }
+
 .meter-row {
   display: grid;
   margin-top: 14px;

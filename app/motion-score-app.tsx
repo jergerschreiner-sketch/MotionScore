@@ -1,6 +1,7 @@
 "use client";
 
 import type { DataConnection, Peer as PeerInstance } from "peerjs";
+import { PairingCard } from "./pairing-card";
 import {
   useCallback,
   useEffect,
@@ -1412,9 +1413,33 @@ export function MotionScoreApp() {
     });
   }, []);
 
+  const releaseController = useCallback(() => {
+    const connection = connectionRef.current;
+    connectionRef.current = null;
+    if (connection?.open) connection.send({ type: "session-ended" });
+    // Give the farewell message time to reach the phone before closing.
+    if (connection) window.setTimeout(() => connection.close(), 150);
+    if (audioRef.current) allNotesOff(audioRef.current);
+    midiRef.current?.allNotesOff();
+    activeNotesRef.current = [];
+    activeStringRef.current = null;
+    setActiveNotes([]);
+    setStringActive(false);
+    setStringVisualMidi(null);
+    setCurrentNoteName("—");
+    shakeRef.current = 0;
+    verticalGestureRef.current = { direction: 0, startedAt: 0, peak: 0, reversals: 0, lastSign: 0 };
+    verticalCooldownRef.current = 0;
+    setFrame(INITIAL_FRAME);
+    setGestureLabel("AWAITING CONTROLLER");
+    setConnectionState("waiting");
+    setMessage("体验已结束，下一位可扫码连接");
+  }, []);
+
   useEffect(() => {
     if (role !== "stage") return;
     let cancelled = false;
+    let handshakeTimer: number | undefined;
 
     void import("peerjs").then(({ Peer }) => {
       if (cancelled) return;
@@ -1422,15 +1447,31 @@ export function MotionScoreApp() {
       peerRef.current = peer;
 
       peer.on("connection", (connection) => {
-        connectionRef.current?.close();
+        // Reserve the stage as soon as a connection arrives, including handshakes.
+        if (connectionRef.current) {
+          connection.on("open", () => {
+            connection.send({ type: "stage-busy" });
+            window.setTimeout(() => connection.close(), 150);
+          });
+          return;
+        }
         connectionRef.current = connection;
+        setConnectionState("connecting");
+        handshakeTimer = window.setTimeout(() => {
+          if (connectionRef.current !== connection) return;
+          releaseController();
+          setMessage("连接超时，请重新扫码");
+        }, 15000);
         connection.on("open", () => {
+          if (connectionRef.current !== connection) return;
+          window.clearTimeout(handshakeTimer);
           setConnectionState("connected");
           setMessage("MOTION STREAM / ACTIVE");
           connection.send({ type: "instrument", mode: instrumentModeRef.current });
           connection.send({ type: "midi-config", mappings: midiMappingsRef.current });
         });
         connection.on("data", (data) => {
+          if (connectionRef.current !== connection) return;
           if (isSensorFrame(data)) processFrame(data);
           else if (isNoteMessage(data)) processNote(data);
           else if (isStringMessage(data)) processString(data);
@@ -1439,14 +1480,17 @@ export function MotionScoreApp() {
           }
         });
         connection.on("close", () => {
-          if (audioRef.current) allNotesOff(audioRef.current);
-          midiRef.current?.allNotesOff();
-          activeNotesRef.current = [];
-          setActiveNotes([]);
-          setConnectionState("waiting");
+          if (connectionRef.current !== connection) return;
+          window.clearTimeout(handshakeTimer);
+          releaseController();
           setMessage("连接已断开，等待重新连接");
         });
-        connection.on("error", () => setConnectionState("error"));
+        connection.on("error", () => {
+          if (connectionRef.current !== connection) return;
+          window.clearTimeout(handshakeTimer);
+          releaseController();
+          setMessage("连接异常，下一位可重新扫码连接");
+        });
       });
 
       peer.on("error", (error) => {
@@ -1462,12 +1506,13 @@ export function MotionScoreApp() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(handshakeTimer);
       connectionRef.current?.close();
       peerRef.current?.destroy();
       connectionRef.current = null;
       peerRef.current = null;
     };
-  }, [processFrame, processNote, processString, role, roomCode, updateMidiMapping]);
+  }, [processFrame, processNote, processString, releaseController, role, roomCode, updateMidiMapping]);
 
   useEffect(() => {
     return () => {
@@ -2005,11 +2050,7 @@ export function MotionScoreApp() {
       </header>
 
       <section className="stage-overlay">
-        <div className="pair-card glass-card">
-          <span className="panel-label">DEVICE LINK</span>
-          <strong>{roomCode}</strong>
-          <p>PHONE / ENTER CODE</p>
-        </div>
+        <PairingCard roomCode={roomCode} connected={connectionState === "connected" || connectionState === "connecting"} onRelease={releaseController} />
 
         <div className="meters glass-card">
           <span className="panel-label">MOTION VECTOR</span>
