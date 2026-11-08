@@ -77,6 +77,23 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+// Keep individual Glass voices below the level used for a monophonic instrument.
+const GLASS_HEADROOM = 0.65;
+
+function makeOutputSafetyCurve() {
+  const curve = new Float32Array(65_537);
+  for (let index = 0; index < curve.length; index += 1) {
+    // The preceding gain maps a +/-4 signal range onto the shaper's +/-1 range.
+    const value = (index / (curve.length - 1) * 2 - 1) * 4;
+    const magnitude = Math.abs(value);
+    // Unity gain below the knee; a smooth shoulder only catches overshoots.
+    curve[index] = Math.sign(value) * (magnitude <= 0.85
+      ? magnitude
+      : 0.85 + 0.10 * Math.tanh((magnitude - 0.85) / 0.10));
+  }
+  return curve;
+}
+
 function makeImpulse(context: AudioContext, seconds = 2.4) {
   const length = Math.floor(context.sampleRate * seconds);
   const impulse = context.createBuffer(2, length, context.sampleRate);
@@ -109,6 +126,8 @@ export function createAudioRig(): AudioRig {
   const delayFeedback = context.createGain();
   const delayWet = context.createGain();
   const limiter = context.createDynamicsCompressor();
+  const safetyInput = context.createGain();
+  const safety = context.createWaveShaper();
   const capture = context.createMediaStreamDestination();
 
   master.gain.value = 0.78;
@@ -132,6 +151,10 @@ export function createAudioRig(): AudioRig {
   limiter.ratio.value = 20;
   limiter.attack.value = 0.003;
   limiter.release.value = 0.18;
+  // DynamicsCompressor can overshoot and applies makeup gain: it is not a ceiling.
+  safetyInput.gain.value = 0.25;
+  safety.curve = makeOutputSafetyCurve();
+  safety.oversample = "4x";
   convolver.buffer = makeImpulse(context);
 
   input.connect(filter).connect(tremolo).connect(panner);
@@ -141,8 +164,9 @@ export function createAudioRig(): AudioRig {
   delay.connect(delayFeedback).connect(delay);
   tremoloLfo.connect(tremoloDepth).connect(tremolo.gain);
   master.connect(limiter);
-  limiter.connect(context.destination);
-  limiter.connect(capture);
+  limiter.connect(safetyInput).connect(safety);
+  safety.connect(context.destination);
+  safety.connect(capture);
   tremoloLfo.start();
 
   return {
@@ -302,8 +326,8 @@ export function noteOn(rig: AudioRig, midi: number, velocity = 0.58) {
   const gain = rig.context.createGain();
   source.buffer = buffer;
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(clamp(0.42 + velocity * 0.58, 0.18, 1), now + 0.008);
-  gain.gain.setTargetAtTime(clamp(0.34 + velocity * 0.32, 0.2, 0.72), now + 0.10, 1.8);
+  gain.gain.exponentialRampToValueAtTime(clamp(0.42 + velocity * 0.58, 0.18, 1) * GLASS_HEADROOM, now + 0.008);
+  gain.gain.setTargetAtTime(clamp(0.34 + velocity * 0.32, 0.2, 0.72) * GLASS_HEADROOM, now + 0.10, 1.8);
   source.connect(gain).connect(rig.input);
   source.start(now);
   source.addEventListener("ended", () => {
