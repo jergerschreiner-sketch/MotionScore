@@ -32,6 +32,8 @@ test("server-renders the MotionScore role selector", async () => {
   assert.match(html, /<title>惯性谱 MotionScore<\/title>/i);
   assert.match(html, /class="home-shell"/);
   assert.match(html, /电脑舞台端/);
+  assert.match(html, /首页扫码配对/);
+  assert.match(html, /连接后自动进入舞台/);
   assert.match(html, /手机控制端/);
   assert.match(html, /href="(?:\.\/|\/)phone\.html"/);
   assert.match(html, /无线数字乐器与动作视觉乐谱系统/);

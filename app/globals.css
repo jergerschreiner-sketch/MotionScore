@@ -89,6 +89,32 @@ button {
   margin: clamp(72px, 12vh, 138px) auto 54px;
 }
 
+.home-intro {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: center;
+  gap: clamp(28px, 5vw, 80px);
+  max-width: 1100px;
+  margin: clamp(36px, 7vh, 80px) auto 36px;
+}
+
+.home-intro .hero { margin: 0; }
+.home-intro .hero h1 { font-size: clamp(46px, 6.5vw, 90px); }
+.home-pairing h2 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+.home-pairing .pair-card { --stage-accent: var(--acid); }
+.home-pairing .pair-card p { font-size: 13px; line-height: 1.5; }
+.home-pairing-hint, .home-pairing-error { margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: rgba(241, 239, 231, .6); }
+.home-pairing-error { color: #ff9d80; }
+
+@media (max-width: 700px) {
+  .home-intro { grid-template-columns: 1fr; margin-top: 36px; }
+  .home-intro .hero { margin: 0; }
+  .home-intro .hero h1 { font-size: clamp(32px, 8.5vw, 48px); }
+  .home-pairing { width: min(100%, 300px); justify-self: center; }
+}
+
 .eyebrow,
 .panel-label {
   font-family: ui-monospace, "SFMono-Regular", monospace;

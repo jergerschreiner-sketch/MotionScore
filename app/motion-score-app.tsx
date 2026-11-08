@@ -1127,6 +1127,7 @@ function MotionCanvas({
 
 export function MotionScoreApp() {
   const [role, setRole] = useState<Role>("home");
+  const isStageHost = role !== "controller";
   const [roomCode, setRoomCode] = useState(makeRoomCode);
   const [inputCode, setInputCode] = useState("");
   const [connectionState, setConnectionState] = useState<
@@ -1437,7 +1438,7 @@ export function MotionScoreApp() {
   }, []);
 
   useEffect(() => {
-    if (role !== "stage") return;
+    if (!isStageHost) return;
     let cancelled = false;
     let handshakeTimer: number | undefined;
 
@@ -1445,6 +1446,10 @@ export function MotionScoreApp() {
       if (cancelled) return;
       const peer = new Peer(peerId(roomCode), { debug: 1 });
       peerRef.current = peer;
+      peer.on("open", () => {
+        if (cancelled) return;
+        setConnectionState("waiting");
+      });
 
       peer.on("connection", (connection) => {
         // Reserve the stage as soon as a connection arrives, including handshakes.
@@ -1466,6 +1471,7 @@ export function MotionScoreApp() {
           if (connectionRef.current !== connection) return;
           window.clearTimeout(handshakeTimer);
           setConnectionState("connected");
+          setRole("stage");
           setMessage("MOTION STREAM / ACTIVE");
           connection.send({ type: "instrument", mode: instrumentModeRef.current });
           connection.send({ type: "midi-config", mappings: midiMappingsRef.current });
@@ -1512,7 +1518,7 @@ export function MotionScoreApp() {
       connectionRef.current = null;
       peerRef.current = null;
     };
-  }, [processFrame, processNote, processString, releaseController, role, roomCode, updateMidiMapping]);
+  }, [isStageHost, processFrame, processNote, processString, releaseController, roomCode, updateMidiMapping]);
 
   useEffect(() => {
     return () => {
@@ -1911,6 +1917,7 @@ export function MotionScoreApp() {
           <span className="prototype-tag">PROTOTYPE 02</span>
         </header>
 
+        <div className="home-intro">
         <section className="hero">
           <p className="eyebrow">MOTION · SOUND · SCORE</p>
           <h1>
@@ -1923,10 +1930,16 @@ export function MotionScoreApp() {
           </p>
         </section>
 
+        <aside className="home-pairing" aria-label="首页扫码配对">
+          <h2>手机扫码配对</h2>
+          <PairingCard roomCode={roomCode} connected={connectionState === "connected" || connectionState === "connecting"} ready={connectionState !== "idle" && connectionState !== "error"} onRelease={releaseController} />
+          <p className="home-pairing-hint">连接后自动进入舞台。建议手机与电脑使用同一 Wi-Fi。</p>
+          {connectionState === "error" && <p className="home-pairing-error" role="alert">配对服务连接失败，请刷新页面重试。</p>}
+        </aside>
+        </div>
+
         <section className="role-grid" aria-label="选择设备角色">
           <button className="role-card stage-card" onClick={() => {
-            setConnectionState("waiting");
-            setMessage("");
             setRole("stage");
           }}>
             <span className="role-index">01</span>
@@ -2050,7 +2063,7 @@ export function MotionScoreApp() {
       </header>
 
       <section className="stage-overlay">
-        <PairingCard roomCode={roomCode} connected={connectionState === "connected" || connectionState === "connecting"} onRelease={releaseController} />
+        <PairingCard roomCode={roomCode} connected={connectionState === "connected" || connectionState === "connecting"} ready={connectionState !== "idle" && connectionState !== "error"} onRelease={releaseController} />
 
         <div className="meters glass-card">
           <span className="panel-label">MOTION VECTOR</span>
